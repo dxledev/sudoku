@@ -1,13 +1,13 @@
 # Sudoku
 
-A C++20 / Qt 6 desktop game for Wayland. Four difficulty levels, a flat UI with solid colors, keyboard controls, pencil notes, and themes that update in place from JSON.
+A C++20 / Qt 6 desktop game for Wayland. Four difficulty levels, a resizable window, a flat UI with solid colors, keyboard controls, pencil notes, and live theming through the CLI.
 
 ## Build and run
 
 Requires CMake 3.21+, a C++20 compiler, Qt 6.7+ Core/Gui/Widgets, and Qt's Wayland platform plugin. Tests also require Qt Test. On Arch these are provided by `cmake`, `ninja`, `gcc`, `qt6-base`, and `qt6-wayland`.
 
 ```bash
-cd /home/dxle/builds/games/sudoku
+cd sudoku
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 4
 ./build/sudoku
@@ -38,6 +38,8 @@ Mistake highlighting can be switched off. Hints reveal the selected editable til
 
 ## Live themes
 
+Keep the game open and run theme commands in another terminal. Changes apply to the running window automatically and persist across launches. No desktop theme manager is required.
+
 ```bash
 ./build/sudoku theme list
 ./build/sudoku theme preset paper
@@ -47,47 +49,7 @@ Mistake highlighting can be switched off. Hints reveal the selected editable til
 ./build/sudoku theme path
 ```
 
-Built-in themes: `forest`, `paper`, `slate`, and `rose`. Every change validates the complete palette, atomically saves `theme.json`, and triggers the running window's file watcher. The UI repaints after a short 35 ms debounce without resetting the board, notes, undo history, or timer. Multiple open windows using the same theme file receive the update.
-
-### Your static, Caelestia, and Noctalia themes
-
-Follow the active desktop palette to switch automatically with `~/bin/theme`, shell-mode transitions, Static/Dynamic changes, and dynamic wallpaper palettes:
-
-```bash
-./build/sudoku theme follow desktop
-```
-
-This binds to `~/.config/themes/.caelestia-use/Colors.qml`. Your existing `theme-apply` coordinator switches this selector to `current`, `.dynamic/caelestia`, or `.dynamic/noctalia`. Sudoku watches both the selector and the selected palette, including atomic saves, nested symlinks, and directory replacements. A changed palette saves to Sudoku's JSON and repaints the running window; identical palettes do not trigger another repaint. When closed, Sudoku refreshes the saved colors on its next launch. No extra polling process or shell restart is needed.
-
-To pin Sudoku to a particular provider instead:
-
-```bash
-./build/sudoku theme follow static akane
-./build/sudoku theme follow static ~/.config/themes/nord/
-./build/sudoku theme follow static current
-./build/sudoku theme follow caelestia
-./build/sudoku theme follow noctalia
-```
-
-`follow static` reads `Colors.qml` from `~/.config/themes/<name>/`, preferring it over `noctalia.json`. It accepts a directory or an explicit palette file. `current` follows the selector symlink, including changes to its target. QML colors are parsed as data: quoted hex (including Qt's `#AARRGGBB`) and numeric `Qt.rgba(...)` with fractions are supported. No QML engine is loaded. Alpha is flattened to opaque RGB for this solid-color window.
-
-`follow caelestia` reads `~/.local/state/caelestia/shell-theme-palette.json`, including your Aether-backed `colours` format and Caelestia Material palettes. `follow noctalia` reads `~/.config/themes/.dynamic/noctalia/Colors.qml`, the dynamic application palette exported by your existing `noctalia-theme-sync` integration. These follow the last published palette of the selected provider even when that shell is inactive. XDG config/state directory overrides are respected.
-
-To follow a different provider output, supply its path explicitly:
-
-```bash
-./build/sudoku theme follow caelestia /path/to/palette.json
-./build/sudoku theme follow noctalia /path/to/Colors.qml
-./build/sudoku theme follow file /path/to/native-noctalia-palette.json
-```
-
-Both Noctalia's `mPrimary`/`mSurface` schema and its native `primary`/`on_surface` schema are supported, including a `dark`/`light` wrapper (default `dark`, or its `mode` field). `theme import FILE` also accepts these palettes and `Colors.qml` as a one-time snapshot.
-
-`theme follow desktop /absolute/path/to/application-selector` supports a different selector location. `theme follow desktop` resumes automatic desktop following after a manual preset or color override.
-
-Following a source saves both the resolved colors and the source binding in Sudoku's own `theme.json`. While the game is running, source file edits, atomic replacements, and selector changes rederive the colors, save the new JSON, and repaint the existing UI. On restart it refreshes from the source again. Missing or invalid source updates keep the last valid palette. `theme preset`, `theme set`, and `theme import` detach source following; select `follow` again to resume it. Source files and shell configs are only read.
-
-Background, foreground, accent, and error colors come from the provider; grid lines and selection states use solid tints of that palette. This avoids importing shell transparency or introducing gradients.
+Built-in themes: `forest`, `paper`, `slate`, and `rose`. Every change validates the complete palette and atomically saves `theme.json`. The running UI reloads its colors without resetting the board, notes, undo history, or timer. Multiple open windows using the same theme file receive the update.
 
 By default, the file lives at `$XDG_CONFIG_HOME/sudoku/theme.json`, falling back to `~/.config/sudoku/theme.json`. Both the game and CLI accept `--config-dir /absolute/path`, or `SUDOKU_CONFIG_DIR`.
 
@@ -99,9 +61,22 @@ By default, the file lives at `$XDG_CONFIG_HOME/sudoku/theme.json`, falling back
 ./build/sudoku --config-dir /tmp/sudoku-preview
 ```
 
-`--dry-run` validates and prints the proposed JSON without writing files. `theme path`, `theme show`, and `theme list` are read-only. Quote `#RRGGBB` assignments so the shell preserves them.
+`--dry-run` validates and prints the proposed JSON without writing files. `theme path`, `theme show`, and `theme list` are read-only. Quote `#RRGGBB` assignments as shown in the examples.
 
 See [themes/forest.json](themes/forest.json) for the complete schema. All thirteen colors are independently configurable: `background`, `surface`, `surface_alt`, `text`, `muted`, `accent`, `accent_text`, `border`, `grid`, `selection`, `related`, `matching`, and `error`. Direct edits to the JSON file also reload live, including editors that save by replacing the file. Invalid edits leave the running UI on its last valid palette and display an error; correct the file to resume reloads. An invalid file at startup produces a clear CLI error instead of overwriting it.
+
+### Follow a theme file
+
+To keep Sudoku synchronized with a separate theme file:
+
+```bash
+./build/sudoku theme export /tmp/sudoku-theme.json
+./build/sudoku theme follow file /tmp/sudoku-theme.json
+```
+
+Edit the exported file to change colors live. Sudoku watches the source, saves the resolved colors to its own `theme.json`, and reloads the UI. It also handles atomic file replacements and symlink target changes. The source file is only read; it must be different from Sudoku's own `theme.json`.
+
+The source binding persists across launches, and Sudoku refreshes from it on startup. Missing or invalid source updates keep the running window on its last valid colors. `theme preset`, `theme set`, and `theme import` stop following the source; use `theme follow file FILE` again to resume.
 
 ## Difficulty and persistence
 
@@ -127,24 +102,9 @@ ctest --test-dir build --output-on-failure
 QT_QPA_PLATFORM=wayland QT_WAYLAND_CLIENT_BUFFER_INTEGRATION=shm ./build/ui_tests
 ```
 
-Tests cover all four generator tiers and uniqueness, fixed clues, notes, peer-note cleanup, undo, hints, completion, session validation, CLI dry runs, import/export, provider formats, source updates, selector symlink changes, atomic and direct theme edits, invalid-theme recovery, pause behavior, and compact layout geometry. `ctest` uses an offscreen platform for the UI test; the second command checks interaction in a real Wayland session.
+Tests cover all four generator tiers and uniqueness, fixed clues, notes, peer-note cleanup, undo, hints, completion, session validation, CLI dry runs, import/export, palette formats, source updates, symlink changes, atomic and direct theme edits, invalid-theme recovery, pause behavior, and compact layout geometry. `ctest` uses an offscreen platform for the UI test; the second command checks interaction in a real Wayland session.
 
-Desktop integration for your setup installs the binary and icon, places the desktop entry at `~/.local/bin/applications/io.github.quiet_sudoku.desktop`, registers it through `~/.local/share/applications/`, appends a row to `~/.config/apps.list`, and enables desktop theme following:
-
-```bash
-bash scripts/install-desktop.sh --dry-run
-bash scripts/install-desktop.sh
-```
-
-The installer preserves existing app-list rows and order, avoids duplicate registration, and backs up existing app-list/theme files before changing them. Its options expose the build directory, install prefix, config directory, app list, and theme selector. The desktop entry uses an absolute executable path, so it also works when a launcher's `PATH` omits `~/.local/bin`. Re-run the installer after rebuilding to update the installed binary.
-
-The transition test can also exercise your real `theme-apply --activate-only` and `theme --current-only` scripts against temporary theme directories, without switching your live shell or wallpaper:
-
-```bash
-SUDOKU_DESKTOP_SCRIPTS_DIR="$HOME/bin" QT_QPA_PLATFORM=offscreen ./build/ui_tests desktopTransitions
-```
-
-For a conventional installation without personal app-list integration:
+Install the executable, desktop entry, and scalable icon for your user account:
 
 ```bash
 cmake --install build --prefix "$HOME/.local"
