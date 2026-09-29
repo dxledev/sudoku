@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Sudoku
+Comment=One square at a time
+Exec=sudoku
+Icon=io.github.quiet_sudoku
+Terminal=false
+Categories=Game;LogicGame;
+Keywords=sudoku;puzzle;notes;
+StartupWMClass=io.github.quiet_sudoku
