@@ -2,16 +2,16 @@
 
 #include "core/puzzle.h"
 #include "core/theme.h"
-#include <QWidget>
+#include "modal_backdrop.h"
 
 class QPushButton;
 
 namespace sudoku {
 
-class NewPuzzleModal : public QWidget {
+class NewPuzzleModal : public ModalBackdrop {
     Q_OBJECT
 public:
-    explicit NewPuzzleModal(QWidget *parent);
+    explicit NewPuzzleModal(QWidget *parent, QWidget *background);
     void showConfirmation(Difficulty difficulty);
     void setTheme(const Theme &theme);
 
@@ -20,14 +20,11 @@ signals:
     void dismissed();
 
 protected:
-    void paintEvent(QPaintEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     bool focusNextPrevChild(bool next) override;
     void resizeEvent(QResizeEvent *event) override;
 
 private:
-    QColor backdrop_;
-    QWidget *card_;
     QPushButton *keepButton_, *startButton_;
     Difficulty difficulty_ = Difficulty::Easy;
     QWidget *buildCard();

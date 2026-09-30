@@ -136,8 +136,11 @@ private slots:
         QVERIFY(modal->isVisible());
         QTest::qWait(1100);
         QCOMPARE(window.elapsedSeconds(), seconds);
-        QTest::mouseClick(modal->findChild<QPushButton *>("closeStats"), Qt::LeftButton);
+        QTest::mouseClick(modal, Qt::LeftButton, Qt::NoModifier, modal->findChild<QWidget *>("statsCard")->geometry().center());
+        QVERIFY(modal->isVisible());
+        QTest::mouseClick(modal, Qt::LeftButton, Qt::NoModifier, QPoint(4, 4));
         QVERIFY(modal->isHidden());
+        QCOMPARE(QApplication::focusWidget(), window.board());
         QTRY_VERIFY(window.elapsedSeconds() > seconds);
         window.close();
     }
@@ -295,8 +298,11 @@ private slots:
         QTRY_VERIFY(window.elapsedSeconds() > seconds);
         QTest::keyClick(window.board(), Qt::Key_N, Qt::ControlModifier);
         QVERIFY(modal->isVisible());
-        QTest::keyClick(keep, Qt::Key_Return);
+        QTest::mouseClick(modal, Qt::LeftButton, Qt::NoModifier, card->geometry().center());
+        QVERIFY(modal->isVisible());
+        QTest::mouseClick(modal, Qt::LeftButton, Qt::NoModifier, QPoint(4, 4));
         QVERIFY(modal->isHidden());
+        QCOMPARE(QApplication::focusWidget(), window.board());
         QCOMPARE(window.game()->id(), originalId);
         window.togglePause();
         QVERIFY(window.isPaused());

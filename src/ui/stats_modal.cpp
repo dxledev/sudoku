@@ -5,7 +5,6 @@
 #include <QGridLayout>
 #include <QPushButton>
 #include <QKeyEvent>
-#include <QPainter>
 #include <QResizeEvent>
 #include <algorithm>
 
@@ -28,7 +27,7 @@ QLabel *text(const QString &value, const QString &name, QWidget *parent = nullpt
 
 }
 
-StatsModal::StatsModal(QWidget *parent) : QWidget(parent) {
+StatsModal::StatsModal(QWidget *parent, QWidget *background) : ModalBackdrop(parent, background) {
     setObjectName("statsModal");
     setAccessibleName("Local statistics dialog");
     setFocusPolicy(Qt::StrongFocus);
@@ -37,6 +36,7 @@ StatsModal::StatsModal(QWidget *parent) : QWidget(parent) {
     layout->setContentsMargins(24, 24, 24, 24);
     layout->addStretch();
     card_ = buildCard();
+    connect(this, &ModalBackdrop::outsideClicked, this, &StatsModal::dismiss);
     layout->addWidget(card_, 0, Qt::AlignHCenter);
     layout->addStretch();
     hide();
@@ -116,14 +116,7 @@ void StatsModal::showStats(const Statistics &statistics) {
 }
 
 void StatsModal::setTheme(const Theme &theme) {
-    backdrop_ = theme.color("background");
-    backdrop_.setAlpha(210);
-    update();
-}
-
-void StatsModal::paintEvent(QPaintEvent *) {
-    QPainter painter(this);
-    painter.fillRect(rect(), backdrop_);
+    setTint(theme.color("background"));
 }
 
 void StatsModal::keyPressEvent(QKeyEvent *event) {
@@ -146,7 +139,7 @@ bool StatsModal::focusNextPrevChild(bool) {
 }
 
 void StatsModal::resizeEvent(QResizeEvent *event) {
-    QWidget::resizeEvent(event);
+    ModalBackdrop::resizeEvent(event);
     card_->setFixedWidth(std::min(700, std::max(0, width() - 48)));
     layout()->activate();
 }

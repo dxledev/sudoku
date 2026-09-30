@@ -3,7 +3,6 @@
 #include <QFrame>
 #include <QKeyEvent>
 #include <QLabel>
-#include <QPainter>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QVBoxLayout>
@@ -11,7 +10,7 @@
 
 namespace sudoku {
 
-NewPuzzleModal::NewPuzzleModal(QWidget *parent) : QWidget(parent) {
+NewPuzzleModal::NewPuzzleModal(QWidget *parent, QWidget *background) : ModalBackdrop(parent, background) {
     setObjectName("newPuzzleModal");
     setAccessibleName("Start a new puzzle dialog");
     setFocusPolicy(Qt::StrongFocus);
@@ -20,6 +19,7 @@ NewPuzzleModal::NewPuzzleModal(QWidget *parent) : QWidget(parent) {
     layout->setContentsMargins(24, 24, 24, 24);
     layout->addStretch();
     card_ = buildCard();
+    connect(this, &ModalBackdrop::outsideClicked, this, &NewPuzzleModal::dismiss);
     layout->addWidget(card_, 0, Qt::AlignHCenter);
     layout->addStretch();
     hide();
@@ -69,14 +69,7 @@ void NewPuzzleModal::showConfirmation(Difficulty difficulty) {
 }
 
 void NewPuzzleModal::setTheme(const Theme &theme) {
-    backdrop_ = theme.color("background");
-    backdrop_.setAlpha(210);
-    update();
-}
-
-void NewPuzzleModal::paintEvent(QPaintEvent *) {
-    QPainter painter(this);
-    painter.fillRect(rect(), backdrop_);
+    setTint(theme.color("background"));
 }
 
 void NewPuzzleModal::keyPressEvent(QKeyEvent *event) {
@@ -100,7 +93,7 @@ bool NewPuzzleModal::focusNextPrevChild(bool) {
 }
 
 void NewPuzzleModal::resizeEvent(QResizeEvent *event) {
-    QWidget::resizeEvent(event);
+    ModalBackdrop::resizeEvent(event);
     card_->setFixedWidth(std::min(460, std::max(0, width() - 48)));
     layout()->activate();
 }

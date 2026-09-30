@@ -51,6 +51,7 @@ QPixmap brandMark(const Theme &theme, qreal scale) {
     result.fill(Qt::transparent);
     QPainter painter(&result);
     painter.setRenderHint(QPainter::Antialiasing);
+    painter.translate(0, 3);
     painter.setPen(Qt::NoPen);
     for (int row = 0; row < 3; ++row) {
         for (int column = 0; column < 3; ++column) {
@@ -130,7 +131,11 @@ Window::~Window() {
 void Window::buildInterface() {
     auto *root = new QWidget;
     setCentralWidget(root);
-    auto *layout = new QVBoxLayout(root);
+    auto *rootLayout = new QVBoxLayout(root);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    auto *contentWidget = new QWidget(root);
+    rootLayout->addWidget(contentWidget);
+    auto *layout = new QVBoxLayout(contentWidget);
     layout->setContentsMargins(24, 22, 24, 18);
     layout->setSpacing(14);
     layout->addLayout(buildHeader());
@@ -149,9 +154,9 @@ void Window::buildInterface() {
     status_->setMinimumHeight(26);
     layout->addWidget(status_);
     layout->addLayout(buildFooter());
-    statsModal_ = new StatsModal(root);
+    statsModal_ = new StatsModal(root, contentWidget);
     connect(statsModal_, &StatsModal::dismissed, this, &Window::resumeAfterModal);
-    newPuzzleModal_ = new NewPuzzleModal(root);
+    newPuzzleModal_ = new NewPuzzleModal(root, contentWidget);
     connect(newPuzzleModal_, &NewPuzzleModal::dismissed, this, &Window::resumeAfterModal);
     connect(newPuzzleModal_, &NewPuzzleModal::confirmed, this, &Window::startPuzzle);
 }

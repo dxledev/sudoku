@@ -20,6 +20,7 @@ target_link_libraries(sudoku_core PUBLIC Qt6::Core Qt6::Gui)
 add_library(sudoku_ui
     src/ui/animated_tooltip.cpp
     src/ui/solved_overlay.cpp
+    src/ui/modal_backdrop.cpp
     src/ui/stats_modal.cpp
     src/ui/new_puzzle_modal.cpp
     src/ui/board.cpp
