@@ -2,6 +2,7 @@
 
 #include "board.h"
 #include "theme_watcher.h"
+#include "stats_modal.h"
 #include <QCheckBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -46,9 +47,11 @@ public slots:
     void undo();
     void erase();
     void hint();
+    void showStats();
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     QString configDirectory_;
@@ -64,11 +67,12 @@ private:
     bool loading_ = false;
     bool completing_ = false;
     Board *board_;
-    QLabel *brand_, *timerLabel_, *remainingLabel_, *badge_, *givensLabel_, *status_, *themeLabel_;
+    QLabel *brand_, *timerLabel_, *mistakesLabel_, *remainingLabel_, *badge_, *givensLabel_, *status_, *themeLabel_;
     QProgressBar *progress_;
     QPushButton *pauseButton_, *notesButton_, *undoButton_, *eraseButton_, *hintButton_, *newButton_;
     QCheckBox *checkBox_;
     QWidget *tools_;
+    StatsModal *statsModal_ = nullptr;
     std::array<QPushButton *, 4> difficultyButtons_{};
     std::array<QPushButton *, 9> digitButtons_{};
     void buildInterface();
@@ -85,6 +89,7 @@ private:
     void applyTheme();
     void refresh();
     void refreshTimer();
+    void refreshMistakeControls();
     void moved();
     void startPuzzle(Difficulty difficulty);
     void requestPuzzle(Difficulty difficulty);
@@ -92,6 +97,7 @@ private:
     void save();
     void freezeClock();
     void message(const QString &text, bool error = false);
+    void recordResult(bool quitting = false);
 };
 
 }

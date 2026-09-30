@@ -1,9 +1,12 @@
 #include "core/game.h"
 #include "core/storage.h"
+#include "core/statistics.h"
 #include "core/theme.h"
 #include "core/theme_source.h"
 
 #include <QTemporaryDir>
+#include <QJsonArray>
+#include <QFileInfo>
 #include <QtTest>
 #include <algorithm>
 
@@ -12,6 +15,98 @@ using namespace sudoku;
 class CoreTests : public QObject {
     Q_OBJECT
 private slots:
+    void statisticsResults() {
+        Statistics statistics;
+        for (const auto &info : difficulties) {
+            std::mt19937 random(91);
+            Game game(generatePuzzle(info.value, random));
+            const auto id = game.id();
+            QVERIFY(!statistics.recordWin(game, 300));
+            QVERIFY(!statistics.recordQuit(game, 180));
+            const int cell = static_cast<int>(std::distance(game.values().begin(), std::find(game.values().begin(), game.values().end(), 0)));
+            QVERIFY(game.enter(cell, 1, true));
+            QVERIFY(!game.enteredValue());
+            QVERIFY(!statistics.recordQuit(game, 180));
+            QVERIFY(game.hint(cell));
+            QVERIFY(!game.enteredValue());
+            QVERIFY(game.undo());
+            QVERIFY(game.enter(cell, game.puzzle().solution[cell] % 9 + 1));
+            QVERIFY(game.enteredValue());
+            QVERIFY(game.undo());
+            QVERIFY(game.enteredValue());
+            QVERIFY(!statistics.recordQuit(game, 179));
+            QVERIFY(statistics.recordQuit(game, 180));
+            QVERIFY(!statistics.recordQuit(game, 181));
+            QCOMPARE(statistics.at(info.value).quits, 1);
+            Game winner(generatePuzzle(info.value, random));
+            QVERIFY(winner.id() != id);
+            for (int index = 0; index < 81; ++index) {
+                if (winner.editable(index))
+                    QVERIFY(winner.enter(index, winner.puzzle().solution[index]));
+            }
+            QVERIFY(statistics.recordWin(winner, 240));
+            QVERIFY(!statistics.recordWin(winner, 300));
+            QVERIFY(winner.undo());
+            QVERIFY(!statistics.recordQuit(winner, 300));
+            const int reopened = static_cast<int>(std::distance(winner.values().begin(), std::find(winner.values().begin(), winner.values().end(), 0)));
+            QVERIFY(winner.enter(reopened, winner.puzzle().solution[reopened]));
+            QVERIFY(!statistics.recordWin(winner, 300));
+            QCOMPARE(statistics.at(info.value).wins, 1);
+            QCOMPARE(statistics.at(info.value).totalSeconds, 240);
+            QCOMPARE(statistics.at(info.value).bestSeconds, 240);
+            Game second(generatePuzzle(info.value, random));
+            QVERIFY(second.restore(second.puzzle().solution, {}, 0));
+            QVERIFY(statistics.recordWin(second, 120));
+            QCOMPARE(statistics.at(info.value).wins, 2);
+            QCOMPARE(statistics.at(info.value).totalSeconds, 360);
+            QCOMPARE(statistics.at(info.value).bestSeconds, 120);
+        }
+        QTemporaryDir directory;
+        const auto path = directory.filePath("stats.json");
+        QCOMPARE(Statistics::load(path).at(Difficulty::Easy).wins, 0);
+        statistics.save(path);
+        const auto restored = Statistics::load(path);
+        QCOMPARE(restored.toJson(), statistics.toJson());
+        auto invalid = statistics.toJson();
+        invalid.insert("version", 2);
+        QVERIFY_EXCEPTION_THROWN(Statistics::fromJson(invalid), std::runtime_error);
+        auto levels = statistics.toJson().value("difficulties").toObject();
+        auto easy = levels.value("easy").toObject();
+        easy.insert("wins", -1);
+        levels.insert("easy", easy);
+        invalid = statistics.toJson();
+        invalid.insert("difficulties", levels);
+        QVERIFY_EXCEPTION_THROWN(Statistics::fromJson(invalid), std::runtime_error);
+    }
+
+    void statisticsSessionTracking() {
+        QTemporaryDir directory;
+        std::mt19937 random(91);
+        Game game(generatePuzzle(Difficulty::Easy, random));
+        const int cell = static_cast<int>(std::distance(game.values().begin(), std::find(game.values().begin(), game.values().end(), 0)));
+        QVERIFY(game.enter(cell, game.puzzle().solution[cell]));
+        QVERIFY(game.undo());
+        saveSession(directory.filePath("game.json"), game, 180, true);
+        qint64 seconds = 0;
+        bool check = false;
+        auto restored = loadSession(directory.filePath("game.json"), seconds, check);
+        QCOMPARE(restored->id(), game.id());
+        QVERIFY(restored->enteredValue());
+        Statistics statistics;
+        QVERIFY(statistics.recordQuit(*restored, seconds));
+        const auto loaded = Statistics::fromJson(statistics.toJson());
+        auto again = loaded;
+        QVERIFY(!again.recordQuit(*restored, seconds));
+        auto legacy = readJson(directory.filePath("game.json"));
+        legacy.remove("id");
+        legacy.remove("entered_value");
+        writeJson(directory.filePath("game.json"), legacy);
+        auto old = loadSession(directory.filePath("game.json"), seconds, check);
+        auto oldAgain = loadSession(directory.filePath("game.json"), seconds, check);
+        QCOMPARE(old->id(), oldAgain->id());
+        QVERIFY(old->enteredValue());
+    }
+
     void generation_data() {
         QTest::addColumn<int>("level");
         for (int level = 0; level < 4; ++level)
@@ -125,6 +220,144 @@ private slots:
         QVERIFY(game.undo());
         QVERIFY(!game.complete());
         QCOMPARE(game.remaining(), 1);
+    }
+
+    void mistakeCounting() {
+        std::mt19937 random(91);
+        Game game(generatePuzzle(Difficulty::Easy, random));
+        std::vector<int> editable;
+        for (int cell = 0; cell < 81; ++cell) {
+            if (game.editable(cell))
+                editable.push_back(cell);
+        }
+        const int cell = editable[0];
+        const int correct = game.puzzle().solution[cell];
+        const int wrong = correct % 9 + 1;
+        const int otherWrong = wrong % 9 + 1;
+        QVERIFY(game.enter(cell, wrong, true));
+        QCOMPARE(game.mistakes(), 0);
+        QVERIFY(game.enter(cell, wrong));
+        QCOMPARE(game.mistakes(), 1);
+        QVERIFY(!game.enter(cell, wrong));
+        QCOMPARE(game.mistakes(), 1);
+        QVERIFY(game.erase(cell));
+        QVERIFY(game.enter(cell, wrong));
+        QCOMPARE(game.mistakes(), 1);
+        for (int repeat = 0; repeat < 5; ++repeat) {
+            QVERIFY(game.erase(cell));
+            QVERIFY(game.enter(cell, wrong, true));
+            QVERIFY(game.enter(cell, wrong));
+            QCOMPARE(game.mistakes(), 1);
+        }
+        QVERIFY(game.enter(cell, correct));
+        QVERIFY(game.enter(cell, wrong));
+        QCOMPARE(game.mistakes(), 1);
+        QVERIFY(game.enter(cell, otherWrong));
+        QCOMPARE(game.mistakes(), 2);
+        QVERIFY(game.enter(cell, wrong));
+        QCOMPARE(game.mistakes(), 3);
+        QVERIFY(game.undo());
+        QCOMPARE(game.mistakes(), 3);
+        QVERIFY(game.enter(cell, wrong));
+        QCOMPARE(game.mistakes(), 3);
+        QVERIFY(game.enter(editable[1], game.puzzle().solution[editable[1]] % 9 + 1));
+        QCOMPARE(game.mistakes(), 4);
+        QVERIFY(game.hint(cell));
+        QCOMPARE(game.mistakes(), 4);
+        QVERIFY(game.enter(cell, wrong));
+        QCOMPARE(game.mistakes(), 5);
+        QVERIFY(!game.enter(-1, wrong));
+        QVERIFY(!game.enter(cell, 0));
+        QCOMPARE(game.mistakes(), 5);
+    }
+
+    void savedMistakesAndUndo() {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("game.json");
+        std::mt19937 random(91);
+        Game game(generatePuzzle(Difficulty::Easy, random));
+        const int cell = static_cast<int>(std::distance(game.values().begin(), std::find(game.values().begin(), game.values().end(), 0)));
+        const int wrong = game.puzzle().solution[cell] % 9 + 1;
+        QVERIFY(game.enter(cell, wrong));
+        QVERIFY(game.erase(cell));
+        saveSession(path, game, 42, true);
+        qint64 elapsed = 0;
+        bool check = false;
+        auto restored = loadSession(path, elapsed, check);
+        QCOMPARE(restored->mistakes(), 1);
+        QVERIFY(restored->enter(cell, wrong));
+        QCOMPARE(restored->mistakes(), 1);
+        QVERIFY(restored->erase(cell));
+        saveSession(path, *restored, 42, true);
+        restored = loadSession(path, elapsed, check);
+        QVERIFY(restored->enter(cell, wrong));
+        QCOMPARE(restored->mistakes(), 1);
+        QVERIFY(restored->enter(cell, restored->puzzle().solution[cell]));
+        QVERIFY(restored->enter(cell, wrong));
+        QCOMPARE(restored->mistakes(), 1);
+        QVERIFY(restored->enter(cell, wrong % 9 + 1));
+        QCOMPARE(restored->mistakes(), 2);
+        QVERIFY(restored->enter(cell, wrong));
+        QCOMPARE(restored->mistakes(), 3);
+        for (int index = 0; index < 81; ++index) {
+            if (restored->editable(index))
+                QVERIFY(restored->enter(index, restored->puzzle().solution[index]));
+        }
+        saveSession(path, *restored, 42, true);
+        restored = loadSession(path, elapsed, check);
+        QVERIFY(restored->complete());
+        QVERIFY(restored->undo());
+        QVERIFY(!restored->complete());
+        QCOMPARE(restored->mistakes(), 3);
+        QVERIFY(restored->canUndo());
+        auto data = readJson(path);
+        data.insert("mistakes", -1);
+        writeJson(path, data);
+        QVERIFY_EXCEPTION_THROWN(loadSession(path, elapsed, check), std::runtime_error);
+        data.insert("mistakes", 3);
+        data.insert("wrong_attempts", QJsonArray{4});
+        writeJson(path, data);
+        QVERIFY_EXCEPTION_THROWN(loadSession(path, elapsed, check), std::runtime_error);
+        data = readJson(path);
+        data.remove("mistakes");
+        data.remove("wrong_attempts");
+        data.insert("history", QJsonArray{QJsonObject{}});
+        writeJson(path, data);
+        QVERIFY_EXCEPTION_THROWN(loadSession(path, elapsed, check), std::runtime_error);
+    }
+
+    void boundedSavedHistoryAndLegacyCompletion() {
+        QTemporaryDir directory;
+        const auto path = directory.filePath("game.json");
+        std::mt19937 random(91);
+        Game game(generatePuzzle(Difficulty::Easy, random));
+        const int cell = static_cast<int>(std::distance(game.values().begin(), std::find(game.values().begin(), game.values().end(), 0)));
+        for (int attempt = 0; attempt < 225; ++attempt)
+            QVERIFY(game.enter(cell, 1, true));
+        saveSession(path, game, 0, true);
+        QVERIFY(QFileInfo(path).size() < 1024 * 1024);
+        qint64 elapsed = 0;
+        bool check = false;
+        auto restored = loadSession(path, elapsed, check);
+        int undone = 0;
+        while (restored->undo())
+            ++undone;
+        QCOMPARE(undone, 200);
+        QVERIFY(game.restore(game.puzzle().solution, {}, 0));
+        saveSession(path, game, 2098, true);
+        auto legacy = readJson(path);
+        legacy.remove("history");
+        legacy.remove("mistakes");
+        legacy.remove("wrong_attempts");
+        writeJson(path, legacy);
+        restored = loadSession(path, elapsed, check);
+        QVERIFY(restored->complete());
+        QVERIFY(restored->undo());
+        QCOMPARE(restored->remaining(), 1);
+        const auto empty = std::find(restored->values().begin(), restored->values().end(), 0);
+        const int reopened = static_cast<int>(std::distance(restored->values().begin(), empty));
+        QVERIFY(restored->enter(reopened, restored->puzzle().solution[reopened]));
+        QVERIFY(restored->complete());
     }
 
     void sessionRoundTripAndValidation() {

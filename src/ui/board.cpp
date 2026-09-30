@@ -1,6 +1,9 @@
 #include "board.h"
+#include "animated_tooltip.h"
+#include "solved_overlay.h"
 
 #include <QKeyEvent>
+#include <QHelpEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -8,16 +11,37 @@
 
 namespace sudoku {
 
-Board::Board(QWidget *parent) : QWidget(parent) {
+Board::Board(QWidget *parent)
+    : QWidget(parent), tooltip_(new AnimatedTooltip(this)), solvedOverlay_(new SolvedOverlay(this)) {
     setObjectName("board");
     setMinimumSize(288, 288);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setFocusPolicy(Qt::StrongFocus);
+    setMouseTracking(true);
     setAccessibleName("Sudoku board");
-    setToolTip("Arrow keys to move · 1–9 to enter · N for notes · Backspace to erase");
+    setToolTip("Arrow keys or hjkl to move · 1–9 to enter · N for notes · Backspace to erase");
+}
+
+bool Board::event(QEvent *event) {
+    if (event->type() == QEvent::ToolTip) {
+        if (!tooltipShown_ && !(game_ && game_->complete())) {
+            const auto *help = static_cast<QHelpEvent *>(event);
+            tooltip_->showAt(toolTip(), help->pos());
+            tooltipShown_ = true;
+        }
+        event->accept();
+        return true;
+    }
+    if (event->type() == QEvent::MouseMove || event->type() == QEvent::Leave) {
+        tooltip_->fadeOut();
+        if (event->type() == QEvent::Leave)
+            tooltipShown_ = false;
+    }
+    return QWidget::event(event);
 }
 
 void Board::setGame(Game *game) {
+    solvedOverlay_->clear();
     game_ = game;
     selected_ = 0;
     if (game_) {
@@ -26,13 +50,48 @@ void Board::setGame(Game *game) {
             selected_ = static_cast<int>(std::distance(game_->values().begin(), first));
     }
     selectCell(selected_);
+    refreshCompletion();
 }
 
-void Board::setTheme(const Theme &theme) { theme_ = theme; update(); }
+void Board::setTheme(const Theme &theme) {
+    theme_ = theme;
+    tooltip_->setStyleSheet(QString("background-color: %1; color: %2; border: 1px solid %3; padding: 7px;")
+                               .arg(theme.hex("surface_alt"), theme.hex("text"), theme.hex("border")));
+    if (!solvedOverlay_->isHidden())
+        solvedOverlay_->setSnapshot(gridSnapshot(), theme_);
+    update();
+}
 void Board::setPaused(bool paused) { paused_ = paused; update(); }
 void Board::setLoading(bool loading) { loading_ = loading; update(); }
 void Board::setCheckMistakes(bool enabled) { checkMistakes_ = enabled; update(); }
 void Board::setPencil(bool enabled) { pencil_ = enabled; update(); }
+
+void Board::refreshCompletion() {
+    const bool solved = game_ && game_->complete() && !loading_ && !paused_;
+    if (solved && solvedOverlay_->isHidden()) {
+        tooltip_->hide();
+        solvedOverlay_->setGeometry(boardRect().toRect());
+        solvedOverlay_->reveal(gridSnapshot(), theme_);
+        setAccessibleDescription("Puzzle solved");
+    } else if (!solved && !solvedOverlay_->isHidden()) {
+        solvedOverlay_->clear();
+    }
+}
+
+QPixmap Board::gridSnapshot() {
+    // Bound the cached blur independently of window size and display scale.
+    QPixmap snapshot(384, 384);
+    snapshot.fill(theme_.color("surface"));
+    QPainter painter(&snapshot);
+    painter.setRenderHint(QPainter::Antialiasing);
+    paintGrid(painter, QRectF(snapshot.rect()));
+    return snapshot;
+}
+
+void Board::resizeEvent(QResizeEvent *event) {
+    QWidget::resizeEvent(event);
+    solvedOverlay_->setGeometry(boardRect().toRect());
+}
 
 QRectF Board::boardRect() const {
     const qreal side = std::max(0, std::min(width(), height()) - 4);
@@ -55,7 +114,8 @@ void Board::paintCell(QPainter &painter, int index, const QRectF &rectangle) {
         cellFont.setPixelSize(qRound(rectangle.width() * .42));
         cellFont.setWeight(game_->puzzle().clues[index] ? QFont::Medium : QFont::Normal);
         painter.setFont(cellFont);
-        painter.setPen(theme_.color(checkMistakes_ && game_->wrong(index) ? "error"
+        const bool highlightMistake = checkMistakes_ && game_->puzzle().difficulty == Difficulty::Easy && game_->wrong(index);
+        painter.setPen(theme_.color(highlightMistake ? "error"
                                     : game_->puzzle().clues[index] ? "text" : "accent"));
         painter.drawText(rectangle, Qt::AlignCenter, QString::number(value));
     } else {
@@ -111,6 +171,22 @@ void Board::paintCover(QPainter &painter, const QRectF &rectangle) {
                      paused_ ? "Press Space or Resume to return" : "Finding your next puzzle…");
 }
 
+void Board::paintGrid(QPainter &painter, const QRectF &rectangle) {
+    const qreal cell = rectangle.width() / 9;
+    for (int index = 0; index < 81; ++index) {
+        const QRectF bounds(rectangle.x() + index % 9 * cell,
+                            rectangle.y() + index / 9 * cell, cell, cell);
+        paintCell(painter, index, bounds);
+    }
+    for (int line = 1; line < 9; ++line) {
+        painter.setPen(QPen(theme_.color(line % 3 ? "border" : "grid"), line % 3 ? .7 : 1.8));
+        painter.drawLine(QPointF(rectangle.x() + line * cell, rectangle.top()),
+                         QPointF(rectangle.x() + line * cell, rectangle.bottom()));
+        painter.drawLine(QPointF(rectangle.left(), rectangle.y() + line * cell),
+                         QPointF(rectangle.right(), rectangle.y() + line * cell));
+    }
+}
+
 void Board::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
@@ -118,22 +194,10 @@ void Board::paintEvent(QPaintEvent *) {
     QPainterPath clip;
     clip.addRoundedRect(rectangle, 10, 10);
     painter.setClipPath(clip);
-    const qreal cell = rectangle.width() / 9;
     if (!game_ || loading_ || paused_) {
         paintCover(painter, rectangle);
     } else {
-        for (int index = 0; index < 81; ++index) {
-            const QRectF bounds(rectangle.x() + index % 9 * cell,
-                                rectangle.y() + index / 9 * cell, cell, cell);
-            paintCell(painter, index, bounds);
-        }
-        for (int line = 1; line < 9; ++line) {
-            painter.setPen(QPen(theme_.color(line % 3 ? "border" : "grid"), line % 3 ? .7 : 1.8));
-            painter.drawLine(QPointF(rectangle.x() + line * cell, rectangle.top()),
-                             QPointF(rectangle.x() + line * cell, rectangle.bottom()));
-            painter.drawLine(QPointF(rectangle.left(), rectangle.y() + line * cell),
-                             QPointF(rectangle.right(), rectangle.y() + line * cell));
-        }
+        paintGrid(painter, rectangle);
     }
     painter.setClipping(false);
     painter.setBrush(Qt::NoBrush);
@@ -152,7 +216,7 @@ void Board::selectCell(int index) {
 }
 
 void Board::mousePressEvent(QMouseEvent *event) {
-    if (loading_ || paused_ || !game_ || !boardRect().contains(event->position()))
+    if (loading_ || paused_ || !game_ || game_->complete() || !boardRect().contains(event->position()))
         return;
     const auto rectangle = boardRect();
     const qreal cell = rectangle.width() / 9;
@@ -163,20 +227,20 @@ void Board::mousePressEvent(QMouseEvent *event) {
 }
 
 void Board::keyPressEvent(QKeyEvent *event) {
-    if (loading_ || paused_ || !game_)
+    if (loading_ || paused_ || !game_ || game_->complete())
         return;
     const int key = event->key();
     if (key >= Qt::Key_1 && key <= Qt::Key_9)
         emit digitRequested(key - Qt::Key_0);
     else if (key == Qt::Key_Backspace || key == Qt::Key_Delete || key == Qt::Key_0)
         emit eraseRequested();
-    else if (key == Qt::Key_Left)
+    else if (key == Qt::Key_Left || key == Qt::Key_H)
         selectCell(selected_ / 9 * 9 + (selected_ % 9 + 8) % 9);
-    else if (key == Qt::Key_Right)
+    else if (key == Qt::Key_Right || key == Qt::Key_L)
         selectCell(selected_ / 9 * 9 + (selected_ % 9 + 1) % 9);
-    else if (key == Qt::Key_Up)
+    else if (key == Qt::Key_Up || key == Qt::Key_K)
         selectCell((selected_ + 72) % 81);
-    else if (key == Qt::Key_Down)
+    else if (key == Qt::Key_Down || key == Qt::Key_J)
         selectCell((selected_ + 9) % 81);
     else
         QWidget::keyPressEvent(event);

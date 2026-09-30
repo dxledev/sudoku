@@ -10,6 +10,7 @@ add_library(sudoku_core
     src/core/puzzle.cpp
     src/core/game.cpp
     src/core/storage.cpp
+    src/core/statistics.cpp
     src/core/theme.cpp
     src/core/theme_source.cpp
 )
@@ -17,6 +18,9 @@ target_include_directories(sudoku_core PUBLIC src)
 target_link_libraries(sudoku_core PUBLIC Qt6::Core Qt6::Gui)
 
 add_library(sudoku_ui
+    src/ui/animated_tooltip.cpp
+    src/ui/solved_overlay.cpp
+    src/ui/stats_modal.cpp
     src/ui/board.cpp
     src/ui/theme_watcher.cpp
     src/ui/window.cpp

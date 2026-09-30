@@ -25,16 +25,28 @@ Entering a final number clears that tile's notes. A correct final number also re
 
 | Control | Action |
 | --- | --- |
-| Click / arrow keys | Select or move between tiles |
+| Click / arrow keys / hjkl | Select or move between tiles (h left, j down, k up, l right) |
 | 1–9 / keypad | Enter a final number or toggle a pencil note |
 | N | Toggle notes mode |
 | Backspace / Delete / 0 | Erase the selected tile |
 | Ctrl+Z | Undo |
-| H | Reveal one correct number |
+| Ctrl+H | Reveal one correct number |
 | Space | Pause / resume; the board is hidden while paused |
 | Ctrl+N | New puzzle at the current difficulty |
 
-Mistake highlighting can be switched off. Hints reveal the selected editable tile, or another unsolved tile when the selection is fixed or already correct.
+Mistake highlighting is available only on Easy and can be switched off. It is hidden and disabled on Medium, Hard, and Expert. The mistake counter works on every difficulty, including when highlighting is off, and also appears in the completion message. For each wrong digit in each tile, the first entry counts, the second separate attempt is forgiven, and the third and later separate attempts count again. A repeated digit becomes a separate attempt only when a different final number was entered in that tile in between. Erasing, undoing, or adding pencil notes does not reset that protection. Undo keeps the accumulated mistake count.
+
+Hints reveal the selected editable tile, or another unsolved tile when the selection is fixed or already correct. A solved puzzle displays an animated “Solved” overlay over the blurred grid. Undo reopens the changed tile and resumes the timer, so completing it again replays the animation.
+
+## Local statistics
+
+The **Stats** button beside **New puzzle** opens a modal inside the window. Close it with **Close** or **Escape**. The game timer pauses while statistics are open, and the modal follows live theme changes.
+
+Each difficulty shows wins, average solve time, best solve time, average mistakes on wins, quits, and win rate. Times exclude pauses. Win rate is wins divided by wins plus qualifying quits; unfinished games still in progress do not affect it. Each puzzle records its first win once, including when you undo and solve it again.
+
+A quit is recorded when you replace an unfinished puzzle after at least three minutes of play and manually enter at least one final number. The entry still qualifies after erase or undo; pencil notes and hints alone do not qualify. Closing the app keeps the puzzle available to resume and does not count as a quit. A puzzle already recorded as a win cannot later count as a quit.
+
+Statistics are saved atomically in `stats.json` beside `game.json`, with a small set of totals for each difficulty. They stay on your device. Tracking starts with this feature; previous games have no recorded history, but a saved solved puzzle is counted once when restored.
 
 ## Live themes
 
@@ -91,7 +103,7 @@ Every generated puzzle has exactly one solution, verified by a bounded backtrack
 
 These are clue-density tiers with the stated logical constraints, not a comprehensive human-technique rating; puzzles within a tier can vary in complexity.
 
-Moves, pencil notes, elapsed time, hint count, and the mistake preference are saved atomically to `game.json` alongside the theme. Moves save immediately; time saves every ten seconds and on a normal close. Undo holds up to 200 moves in memory and lasts for the current application session. Closing during generation requests cancellation and joins the worker safely.
+Moves, pencil notes, elapsed time, hint count, mistake count, repeat tracking, and the highlighting preference are saved atomically to `game.json` alongside the theme. Moves save immediately; time saves every ten seconds and on a normal close. Undo holds up to 200 moves and persists across launches, including the final move of a solved puzzle. Older solved saves without undo history can reopen one editable tile to replay completion. Closing during generation requests cancellation and joins the worker safely.
 
 The board is one custom-painted widget, not 81 separate widgets. Game arrays have a fixed size, undo is bounded, repainting is event-driven, and the CLI uses `QCoreApplication` without opening a window. Wayland uses raster/shared-memory rendering by default; set `QT_WAYLAND_CLIENT_BUFFER_INTEGRATION` explicitly to override that choice.
 

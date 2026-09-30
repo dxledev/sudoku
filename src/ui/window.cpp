@@ -10,6 +10,8 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QShortcut>
+#include <QSignalBlocker>
+#include <QResizeEvent>
 #include <QStyle>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -36,6 +38,12 @@ QString timeString(qint64 seconds) {
     if (seconds >= 3600)
         return QString("%1:%2:%3").arg(seconds / 3600).arg(seconds / 60 % 60, 2, 10, QChar('0')).arg(seconds % 60, 2, 10, QChar('0'));
     return QString("%1:%2").arg(seconds / 60, 2, 10, QChar('0')).arg(seconds % 60, 2, 10, QChar('0'));
+}
+
+QString completionText(const Game &game, qint64 seconds) {
+    return QString("Puzzle complete · %1 · %2 hints · %3 %4. Ready for another?")
+        .arg(timeString(seconds)).arg(game.hints()).arg(game.mistakes())
+        .arg(game.mistakes() == 1 ? "mistake" : "mistakes");
 }
 
 QPixmap brandMark(const Theme &theme, qreal scale) {
@@ -90,14 +98,16 @@ Window::Window(QString configDirectory, Theme theme, const QString &difficulty, 
     autosave_.start(10000);
     messageTimer_.setSingleShot(true);
     connect(&messageTimer_, &QTimer::timeout, this, [this] { status_->setProperty("error", false); refresh(); });
-    if (difficulty.isEmpty() && QFileInfo::exists(configDirectory_ + "/game.json")) {
+    if (QFileInfo::exists(configDirectory_ + "/game.json")) {
         try {
             bool check = true;
             auto restored = loadSession(configDirectory_ + "/game.json", savedSeconds_, check);
             checkBox_->setChecked(check);
             installGame(std::move(restored));
-            message("Welcome back. Your puzzle is right here.");
-            return;
+            if (difficulty.isEmpty()) {
+                message("Welcome back. Your puzzle is right here.");
+                return;
+            }
         } catch (const std::exception &error) {
             message("Saved game could not be restored: " + QString::fromUtf8(error.what()), true);
         }
@@ -135,6 +145,13 @@ void Window::buildInterface() {
     status_->setMinimumHeight(26);
     layout->addWidget(status_);
     layout->addLayout(buildFooter());
+    statsModal_ = new StatsModal(root);
+    connect(statsModal_, &StatsModal::dismissed, this, [this] {
+        if (game_ && !paused_ && !loading_ && !game_->complete())
+            clock_.start();
+        refreshTimer();
+        board_->setFocus();
+    });
 }
 
 QHBoxLayout *Window::buildHeader() {
@@ -149,6 +166,10 @@ QHBoxLayout *Window::buildHeader() {
     wordmark->addWidget(label("Make a little space.", "muted"));
     header->addLayout(wordmark);
     header->addStretch();
+    auto *stats = button("Stats", "statsButton", "Your local statistics");
+    stats->setAccessibleName("Open statistics");
+    connect(stats, &QPushButton::clicked, this, &Window::showStats);
+    header->addWidget(stats);
     newButton_ = button("＋  New puzzle", "primary", "Start a new puzzle · Ctrl+N");
     newButton_->setMinimumWidth(142);
     connect(newButton_, &QPushButton::clicked, this, [this] { requestPuzzle(difficulty_); });
@@ -227,6 +248,9 @@ QWidget *Window::buildTimerCard() {
     connect(pauseButton_, &QPushButton::clicked, this, &Window::togglePause);
     timerRow->addWidget(pauseButton_);
     timeLayout->addLayout(timerRow);
+    mistakesLabel_ = label("Mistakes: 0", "mistakeCount");
+    mistakesLabel_->setAccessibleName("Mistake count");
+    timeLayout->addWidget(mistakesLabel_);
     return timeCard;
 }
 
@@ -270,7 +294,7 @@ QWidget *Window::buildTools() {
     checkBox_->setChecked(true);
     checkBox_->setFocusPolicy(Qt::NoFocus);
     connect(checkBox_, &QCheckBox::toggled, this, [this](bool enabled) {
-        board_->setCheckMistakes(enabled);
+        board_->setCheckMistakes(enabled && difficulty_ == Difficulty::Easy);
         save();
     });
     toolsLayout->addWidget(checkBox_);
@@ -299,8 +323,9 @@ QHBoxLayout *Window::buildActions() {
     auto *actions = new QHBoxLayout;
     actions->setSpacing(7);
     undoButton_ = button("↶  Undo", "tool", "Undo the last move · Ctrl+Z");
+    undoButton_->setAccessibleName("Undo last move");
     eraseButton_ = button("⌫  Erase", "tool", "Clear this cell · Backspace");
-    hintButton_ = button("◇  Hint", "tool", "Reveal one correct number · H");
+    hintButton_ = button("◇  Hint", "tool", "Reveal one correct number · Ctrl+H");
     connect(undoButton_, &QPushButton::clicked, this, &Window::undo);
     connect(eraseButton_, &QPushButton::clicked, this, &Window::erase);
     connect(hintButton_, &QPushButton::clicked, this, &Window::hint);
@@ -318,7 +343,7 @@ void Window::buildShortcuts() {
     shortcut(QKeySequence(Qt::Key_N), &Window::toggleNotes);
     shortcut(QKeySequence(Qt::Key_Space), &Window::togglePause);
     shortcut(QKeySequence::Undo, &Window::undo);
-    shortcut(QKeySequence(Qt::Key_H), &Window::hint);
+    shortcut(QKeySequence(Qt::CTRL | Qt::Key_H), &Window::hint);
     shortcut(QKeySequence(Qt::CTRL | Qt::Key_N), [this] { requestPuzzle(difficulty_); });
 }
 
@@ -329,7 +354,7 @@ void Window::applyTheme() {
         QLabel { background: transparent; }
         QLabel#wordmark { font-size: 23px; font-weight: 600; }
         QLabel#heading { font-size: 29px; font-weight: 500; }
-        QLabel#muted, QLabel#tip, QLabel#shortcut { color: %5; }
+        QLabel#muted, QLabel#tip, QLabel#shortcut, QLabel#mistakeCount { color: %5; }
         QLabel#tip { font-size: 12px; }
         QLabel#shortcut { font-size: 11px; }
         QLabel#eyebrow { color: %5; font-size: 10px; font-weight: 600; letter-spacing: 1.5px; }
@@ -337,8 +362,10 @@ void Window::applyTheme() {
         QLabel#timer { font-size: 34px; font-weight: 500; }
         QLabel#status { color: %5; font-size: 12px; }
         QLabel#status[error="true"] { color: %13; }
-        QFrame#boardCard, QFrame#timeCard { background: %2; border: 1px solid %8; border-radius: 15px; }
-        QFrame#boardCard QWidget, QFrame#timeCard QWidget { background: transparent; }
+        QFrame#boardCard, QFrame#timeCard, QFrame#statsCard { background: %2; border: 1px solid %8; border-radius: 15px; }
+        QFrame#boardCard QWidget, QFrame#timeCard QWidget, QFrame#statsCard QLabel { background: transparent; }
+        QLabel#statsHeading { color: %5; font-size: 11px; }
+        QLabel#statsDifficulty { font-weight: 600; }
         QPushButton { border: 1px solid %8; border-radius: 8px; background: %2; color: %4; padding: 10px 8px; }
         QPushButton:hover { background: %3; border-color: %9; }
         QPushButton:pressed { background: %10; }
@@ -356,7 +383,7 @@ void Window::applyTheme() {
         QCheckBox::indicator:checked { background: %6; border-color: %6; }
         QProgressBar { background: %8; border: none; border-radius: 2px; }
         QProgressBar::chunk { background: %6; border-radius: 2px; }
-        QToolTip { background: %3; color: %4; border: 1px solid %8; padding: 7px; }
+        QToolTip, QLabel#boardTooltip { background: %3; color: %4; border: 1px solid %8; padding: 7px; }
         QMessageBox { background: %1; }
     )");
     const auto keys = colorKeys();
@@ -374,6 +401,7 @@ void Window::applyTheme() {
     palette.setColor(QPalette::HighlightedText, theme.color("accent_text"));
     setPalette(palette);
     board_->setTheme(theme);
+    statsModal_->setTheme(theme);
     brand_->setPixmap(brandMark(theme, devicePixelRatioF()));
     themeLabel_->setText("●  " + theme.name);
     status_->style()->unpolish(status_);
@@ -391,6 +419,17 @@ void Window::freezeClock() {
 
 void Window::refreshTimer() {
     timerLabel_->setText(timeString(elapsedSeconds()));
+}
+
+void Window::refreshMistakeControls() {
+    const bool easy = difficulty_ == Difficulty::Easy;
+    checkBox_->setVisible(easy);
+    checkBox_->setEnabled(easy && !paused_ && !loading_);
+    if (!easy) {
+        const QSignalBlocker blocker(checkBox_);
+        checkBox_->setChecked(false);
+    }
+    board_->setCheckMistakes(easy && checkBox_->isChecked());
 }
 
 void Window::refresh() {
@@ -414,7 +453,8 @@ void Window::refresh() {
     undoButton_->setEnabled(active && game_->canUndo());
     eraseButton_->setEnabled(editable && (game_->values()[board_->selected()] || game_->notes()[board_->selected()]));
     hintButton_->setEnabled(active && !game_->complete());
-    checkBox_->setEnabled(!paused_ && !loading_);
+    refreshMistakeControls();
+    mistakesLabel_->setText(QString("Mistakes: %1").arg(game_ ? game_->mistakes() : 0));
     badge_->setText(QString::fromUtf8(difficultyInfo(difficulty_).name.data()).toUpper());
     if (game_) {
         const int givens = 81 - static_cast<int>(std::count(game_->puzzle().clues.begin(), game_->puzzle().clues.end(), 0));
@@ -425,10 +465,11 @@ void Window::refresh() {
     if (!messageTimer_.isActive()) {
         status_->setText(loading_ ? "Making sure your puzzle has exactly one solution…"
             : paused_ ? "No rush. Your game is paused."
-            : game_ && game_->complete() ? QString("Puzzle complete · %1 · %2 hints. Ready for another?").arg(timeString(savedSeconds_)).arg(game_->hints())
+            : game_ && game_->complete() ? completionText(*game_, savedSeconds_)
             : pencil_ ? "Notes on · toggle candidate numbers with 1–9. Press N for a final number."
             : "Choose a cell. Find your rhythm.");
     }
+    board_->refreshCompletion();
     board_->update();
     refreshTimer();
 }
@@ -441,15 +482,18 @@ void Window::installGame(std::unique_ptr<Game> game) {
     completing_ = game_->complete();
     board_->setLoading(false);
     board_->setPaused(false);
+    refreshMistakeControls();
     board_->setGame(game_.get());
-    if (!game_->complete())
+    if (!game_->complete() && !statsModal_->isVisible())
         clock_.start();
+    recordResult();
     refresh();
-    board_->setFocus();
+    if (!statsModal_->isVisible())
+        board_->setFocus();
 }
 
 void Window::requestPuzzle(Difficulty difficulty) {
-    if (loading_)
+    if (loading_ || statsModal_->isVisible())
         return;
     if (game_ && !game_->complete() && (game_->hasProgress() || elapsedSeconds() > 0)) {
         QMessageBox prompt(this);
@@ -480,6 +524,7 @@ void Window::startPuzzle(Difficulty difficulty) {
         worker_ = nullptr;
         loading_ = false;
         if (completed->error.isEmpty()) {
+            recordResult(true);
             savedSeconds_ = 0;
             pencil_ = false;
             board_->setPencil(false);
@@ -490,7 +535,7 @@ void Window::startPuzzle(Difficulty difficulty) {
             board_->setLoading(false);
             if (game_) {
                 difficulty_ = game_->puzzle().difficulty;
-                if (!paused_ && !game_->complete())
+                if (!paused_ && !game_->complete() && !statsModal_->isVisible())
                     clock_.start();
             }
             message(completed->error, true);
@@ -502,29 +547,40 @@ void Window::startPuzzle(Difficulty difficulty) {
 }
 
 void Window::enterDigit(int digit) {
-    if (!paused_ && !loading_ && game_ && game_->enter(board_->selected(), digit, pencil_))
+    if (!statsModal_->isVisible() && !paused_ && !loading_ && game_ && game_->enter(board_->selected(), digit, pencil_))
         moved();
 }
 
 void Window::erase() {
-    if (!paused_ && !loading_ && game_ && game_->erase(board_->selected()))
+    if (!statsModal_->isVisible() && !paused_ && !loading_ && game_ && game_->erase(board_->selected()))
         moved();
 }
 
 void Window::undo() {
-    if (!paused_ && !loading_ && game_ && game_->undo())
-        moved();
+    if (statsModal_->isVisible() || paused_ || loading_ || !game_)
+        return;
+    const auto previous = game_->values();
+    if (!game_->undo())
+        return;
+    for (int cell = 0; cell < 81; ++cell) {
+        if (previous[cell] != game_->values()[cell]) {
+            board_->selectCell(cell);
+            break;
+        }
+    }
+    moved();
+    board_->setFocus();
 }
 
 void Window::hint() {
-    if (!paused_ && !loading_ && game_ && game_->hint(board_->selected())) {
+    if (!statsModal_->isVisible() && !paused_ && !loading_ && game_ && game_->hint(board_->selected())) {
         moved();
         message("One number revealed. You've got the rest.");
     }
 }
 
 void Window::toggleNotes() {
-    if (paused_ || loading_ || !game_ || game_->complete())
+    if (statsModal_->isVisible() || paused_ || loading_ || !game_ || game_->complete())
         return;
     pencil_ = !pencil_;
     board_->setPencil(pencil_);
@@ -534,7 +590,7 @@ void Window::toggleNotes() {
 }
 
 void Window::togglePause() {
-    if (loading_ || !game_ || game_->complete())
+    if (statsModal_->isVisible() || loading_ || !game_ || game_->complete())
         return;
     if (!paused_)
         freezeClock();
@@ -565,10 +621,46 @@ void Window::save() {
     if (!game_ || loading_)
         return;
     try {
+        recordResult();
         saveSession(configDirectory_ + "/game.json", *game_, elapsedSeconds(), checkBox_->isChecked());
     } catch (const std::exception &error) {
         message("Could not save game: " + QString::fromUtf8(error.what()), true);
     }
+}
+
+void Window::recordResult(bool quitting) {
+    if (!game_ || (!quitting && !game_->complete()))
+        return;
+    try {
+        const auto path = configDirectory_ + "/stats.json";
+        auto statistics = Statistics::load(path);
+        const bool changed = quitting ? statistics.recordQuit(*game_, elapsedSeconds())
+                                      : statistics.recordWin(*game_, elapsedSeconds());
+        if (changed)
+            statistics.save(path);
+    } catch (const std::exception &error) {
+        message("Could not save statistics: " + QString::fromUtf8(error.what()), true);
+    }
+}
+
+void Window::showStats() {
+    if (statsModal_->isVisible())
+        return;
+    try {
+        const auto statistics = Statistics::load(configDirectory_ + "/stats.json");
+        freezeClock();
+        statsModal_->setGeometry(centralWidget()->rect());
+        statsModal_->showStats(statistics);
+        refreshTimer();
+    } catch (const std::exception &error) {
+        message("Could not load statistics: " + QString::fromUtf8(error.what()), true);
+    }
+}
+
+void Window::resizeEvent(QResizeEvent *event) {
+    QMainWindow::resizeEvent(event);
+    if (statsModal_)
+        statsModal_->setGeometry(centralWidget()->rect());
 }
 
 void Window::message(const QString &text, bool error) {

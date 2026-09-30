@@ -5,6 +5,8 @@
 #include <QWidget>
 
 namespace sudoku {
+class AnimatedTooltip;
+class SolvedOverlay;
 
 class Board : public QWidget {
     Q_OBJECT
@@ -16,7 +18,9 @@ public:
     void setLoading(bool loading);
     void setCheckMistakes(bool enabled);
     void setPencil(bool enabled);
+    void refreshCompletion();
     int selected() const { return selected_; }
+    void selectCell(int index);
     QRectF boardRect() const;
     QSize sizeHint() const override { return {520, 520}; }
 
@@ -26,7 +30,9 @@ signals:
     void selectionChanged();
 
 protected:
+    bool event(QEvent *event) override;
     void paintEvent(QPaintEvent *) override;
+    void resizeEvent(QResizeEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
 
@@ -38,9 +44,13 @@ private:
     bool loading_ = true;
     bool checkMistakes_ = true;
     bool pencil_ = false;
-    void selectCell(int index);
+    bool tooltipShown_ = false;
+    AnimatedTooltip *tooltip_;
+    SolvedOverlay *solvedOverlay_;
     void paintCell(QPainter &painter, int index, const QRectF &rectangle);
     void paintCover(QPainter &painter, const QRectF &rectangle);
+    void paintGrid(QPainter &painter, const QRectF &rectangle);
+    QPixmap gridSnapshot();
 };
 
 }

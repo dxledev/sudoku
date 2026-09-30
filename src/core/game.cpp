@@ -1,9 +1,17 @@
 #include "game.h"
 #include <algorithm>
+#include <limits>
+#include <QUuid>
 
 namespace sudoku {
 
-Game::Game(Puzzle puzzle) : puzzle_(std::move(puzzle)), values_(puzzle_.clues) {}
+Game::Game(Puzzle puzzle) : puzzle_(std::move(puzzle)), values_(puzzle_.clues), lastDigits_(puzzle_.clues),
+    id_(QUuid::createUuid().toString(QUuid::WithoutBraces)) {}
+
+void Game::restoreIdentity(QString id, bool enteredValue) {
+    id_ = std::move(id);
+    enteredValue_ = enteredValue;
+}
 
 int Game::remaining() const {
     return static_cast<int>(std::count(values_.begin(), values_.end(), 0));
@@ -45,13 +53,20 @@ bool Game::enter(int index, int digit, bool pencil) {
         return false;
     checkpoint();
     values_[index] = digit;
+    enteredValue_ = true;
     notes_[index] = 0;
     if (digit == puzzle_.solution[index]) {
         for (int other = 0; other < 81; ++other) {
             if (arePeers(index, other))
                 notes_[other] &= ~(1u << digit);
         }
+    } else if (lastDigits_[index] != digit) {
+        auto &attempts = wrongAttempts_[index * 9 + digit - 1];
+        if (attempts != 1 && mistakes_ < std::numeric_limits<int>::max())
+            ++mistakes_;
+        attempts = std::min<int>(attempts + 1, 3);
     }
+    lastDigits_[index] = digit;
     return true;
 }
 
@@ -74,8 +89,10 @@ bool Game::hint(int index) {
             }
         }
     }
+    const bool previouslyEntered = enteredValue_;
     if (index < 0 || !enter(index, puzzle_.solution[index]))
         return false;
+    enteredValue_ = previouslyEntered;
     ++hints_;
     return true;
 }
@@ -103,7 +120,52 @@ bool Game::restore(const Grid &values, const Notes &notes, int hints) {
     values_ = values;
     notes_ = notes;
     hints_ = hints;
+    mistakes_ = 0;
+    wrongAttempts_.fill(0);
+    lastDigits_ = values;
     history_.clear();
+    enteredValue_ = false;
+    for (int cell = 0; cell < 81; ++cell)
+        enteredValue_ |= editable(cell) && values_[cell] != 0;
+    return true;
+}
+
+bool Game::restoreMistakes(int mistakes, const WrongAttempts &attempts) {
+    if (mistakes < 0)
+        return false;
+    int minimum = 0;
+    for (int index = 0; index < static_cast<int>(attempts.size()); ++index) {
+        const int count = attempts[index];
+        if (count > 3 || (count && (!editable(index / 9) || puzzle_.solution[index / 9] == index % 9 + 1)))
+            return false;
+        minimum += count == 3 ? 2 : count != 0;
+    }
+    if (mistakes < minimum)
+        return false;
+    mistakes_ = mistakes;
+    wrongAttempts_ = attempts;
+    return true;
+}
+
+bool Game::restoreHistory(std::vector<Move> history) {
+    if (history.size() > 200)
+        return false;
+    Game trial(puzzle_);
+    for (const auto &move : history) {
+        if (!trial.restore(move.values, move.notes, move.hints))
+            return false;
+    }
+    history_ = std::move(history);
+    return true;
+}
+
+bool Game::restoreLastDigits(const Grid &digits) {
+    for (int cell = 0; cell < 81; ++cell) {
+        if (digits[cell] < 0 || digits[cell] > 9
+            || (puzzle_.clues[cell] && digits[cell] != puzzle_.clues[cell]))
+            return false;
+    }
+    lastDigits_ = digits;
     return true;
 }
 
