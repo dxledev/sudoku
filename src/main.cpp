@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
         app.setDesktopFileName("io.github.quiet_sudoku");
         app.setWindowIcon(QIcon::fromTheme("io.github.quiet_sudoku"));
         auto theme = sudoku::ensureTheme(options.configDirectory + "/theme.json");
-        sudoku::Window window(options.configDirectory, theme, options.difficulty);
+        sudoku::Window window(options.configDirectory, theme, options.difficulty, nullptr, options.autoPauseSeconds);
         window.show();
         return app.exec();
     } catch (const std::exception &error) {

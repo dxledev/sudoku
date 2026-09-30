@@ -21,6 +21,7 @@ add_library(sudoku_ui
     src/ui/animated_tooltip.cpp
     src/ui/solved_overlay.cpp
     src/ui/stats_modal.cpp
+    src/ui/new_puzzle_modal.cpp
     src/ui/board.cpp
     src/ui/theme_watcher.cpp
     src/ui/window.cpp

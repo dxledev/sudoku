@@ -7,7 +7,6 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
-#include <QMessageBox>
 #include <QPainter>
 #include <QShortcut>
 #include <QSignalBlocker>
@@ -75,9 +74,10 @@ void PuzzleWorker::run() {
     }
 }
 
-Window::Window(QString configDirectory, Theme theme, const QString &difficulty, QWidget *parent)
+Window::Window(QString configDirectory, Theme theme, const QString &difficulty, QWidget *parent, int autoPauseSeconds)
     : QMainWindow(parent), configDirectory_(std::move(configDirectory)),
-      themeWatcher_(new ThemeWatcher(configDirectory_ + "/theme.json", std::move(theme), this)) {
+      themeWatcher_(new ThemeWatcher(configDirectory_ + "/theme.json", std::move(theme), this)),
+      autoPauseMilliseconds_(std::clamp(autoPauseSeconds, 0, 86400) * 1000) {
     setWindowTitle("Sudoku");
     setObjectName("sudokuWindow");
     setMinimumSize(720, 760);
@@ -98,6 +98,10 @@ Window::Window(QString configDirectory, Theme theme, const QString &difficulty, 
     autosave_.start(10000);
     messageTimer_.setSingleShot(true);
     connect(&messageTimer_, &QTimer::timeout, this, [this] { status_->setProperty("error", false); refresh(); });
+    focusPauseTimer_.setSingleShot(true);
+    focusPauseTimer_.setTimerType(Qt::PreciseTimer);
+    connect(&focusPauseTimer_, &QTimer::timeout, this, &Window::refreshFocusPause);
+    unfocusedClock_.start();
     if (QFileInfo::exists(configDirectory_ + "/game.json")) {
         try {
             bool check = true;
@@ -146,12 +150,10 @@ void Window::buildInterface() {
     layout->addWidget(status_);
     layout->addLayout(buildFooter());
     statsModal_ = new StatsModal(root);
-    connect(statsModal_, &StatsModal::dismissed, this, [this] {
-        if (game_ && !paused_ && !loading_ && !game_->complete())
-            clock_.start();
-        refreshTimer();
-        board_->setFocus();
-    });
+    connect(statsModal_, &StatsModal::dismissed, this, &Window::resumeAfterModal);
+    newPuzzleModal_ = new NewPuzzleModal(root);
+    connect(newPuzzleModal_, &NewPuzzleModal::dismissed, this, &Window::resumeAfterModal);
+    connect(newPuzzleModal_, &NewPuzzleModal::confirmed, this, &Window::startPuzzle);
 }
 
 QHBoxLayout *Window::buildHeader() {
@@ -293,15 +295,29 @@ QWidget *Window::buildTools() {
     checkBox_->setObjectName("checkMistakes");
     checkBox_->setChecked(true);
     checkBox_->setFocusPolicy(Qt::NoFocus);
-    connect(checkBox_, &QCheckBox::toggled, this, [this](bool enabled) {
-        board_->setCheckMistakes(enabled && difficulty_ == Difficulty::Easy);
+    connect(checkBox_, &QCheckBox::toggled, this, [this] {
+        refreshMistakeControls();
         save();
     });
     toolsLayout->addWidget(checkBox_);
+    mistakeLegend_ = buildMistakeLegend();
+    toolsLayout->addWidget(mistakeLegend_);
     auto *tip = label("Use notes to keep your options open.", "tip");
     tip->setWordWrap(true);
     toolsLayout->addWidget(tip);
     return tools_;
+}
+
+QWidget *Window::buildMistakeLegend() {
+    auto *legend = new QWidget;
+    legend->setObjectName("mistakeLegend");
+    auto *layout = new QHBoxLayout(legend);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(16);
+    layout->addWidget(label("●  Correct", "correctLegend"));
+    layout->addWidget(label("●  Incorrect", "incorrectLegend"));
+    layout->addStretch();
+    return legend;
 }
 
 QGridLayout *Window::buildKeypad() {
@@ -355,23 +371,26 @@ void Window::applyTheme() {
         QLabel#wordmark { font-size: 23px; font-weight: 600; }
         QLabel#heading { font-size: 29px; font-weight: 500; }
         QLabel#muted, QLabel#tip, QLabel#shortcut, QLabel#mistakeCount { color: %5; }
+        QFrame#newPuzzleCard QLabel#muted { font-size: 19.5px; }
         QLabel#tip { font-size: 12px; }
+        QLabel#correctLegend { color: %correct; font-size: 12px; }
+        QLabel#incorrectLegend { color: %mistake; font-size: 12px; }
         QLabel#shortcut { font-size: 11px; }
         QLabel#eyebrow { color: %5; font-size: 10px; font-weight: 600; letter-spacing: 1.5px; }
         QLabel#badge { color: %6; background: %10; border-radius: 5px; padding: 5px 9px; font-size: 10px; font-weight: 600; letter-spacing: 1px; }
         QLabel#timer { font-size: 34px; font-weight: 500; }
         QLabel#status { color: %5; font-size: 12px; }
-        QLabel#status[error="true"] { color: %13; }
-        QFrame#boardCard, QFrame#timeCard, QFrame#statsCard { background: %2; border: 1px solid %8; border-radius: 15px; }
-        QFrame#boardCard QWidget, QFrame#timeCard QWidget, QFrame#statsCard QLabel { background: transparent; }
+        QLabel#status[error="true"] { color: %mistake; }
+        QFrame#boardCard, QFrame#timeCard, QFrame#statsCard, QFrame#newPuzzleCard { background: %2; border: 1px solid %8; border-radius: 15px; }
+        QFrame#boardCard QWidget, QFrame#timeCard QWidget, QFrame#statsCard QLabel, QFrame#newPuzzleCard QLabel { background: transparent; }
         QLabel#statsHeading { color: %5; font-size: 11px; }
         QLabel#statsDifficulty { font-weight: 600; }
         QPushButton { border: 1px solid %8; border-radius: 8px; background: %2; color: %4; padding: 10px 8px; }
         QPushButton:hover { background: %3; border-color: %9; }
         QPushButton:pressed { background: %10; }
         QPushButton:disabled { color: %5; border-color: %8; }
-        QPushButton#primary { background: %6; color: %7; border: none; font-weight: 600; padding: 12px 18px; }
-        QPushButton#primary:hover { background: %12; color: %4; }
+        QPushButton#primary, QPushButton#startNewPuzzle { background: %6; color: %7; border: none; font-weight: 600; padding: 12px 18px; }
+        QPushButton#primary:hover, QPushButton#startNewPuzzle:hover { background: %12; color: %4; }
         QPushButton#difficulty { padding: 8px; font-size: 12px; }
         QPushButton#difficulty:checked { background: %10; color: %6; border-color: %6; }
         QPushButton#digit { font-size: 23px; font-weight: 500; padding: 5px; }
@@ -384,8 +403,9 @@ void Window::applyTheme() {
         QProgressBar { background: %8; border: none; border-radius: 2px; }
         QProgressBar::chunk { background: %6; border-radius: 2px; }
         QToolTip, QLabel#boardTooltip { background: %3; color: %4; border: 1px solid %8; padding: 7px; }
-        QMessageBox { background: %1; }
     )");
+    style.replace("%mistake", theme.mistakeColor.name());
+    style.replace("%correct", theme.correctColor.name());
     const auto keys = colorKeys();
     for (qsizetype index = keys.size(); index > 0; --index)
         style.replace("%" + QString::number(index), theme.hex(keys[index - 1]));
@@ -402,6 +422,7 @@ void Window::applyTheme() {
     setPalette(palette);
     board_->setTheme(theme);
     statsModal_->setTheme(theme);
+    newPuzzleModal_->setTheme(theme);
     brand_->setPixmap(brandMark(theme, devicePixelRatioF()));
     themeLabel_->setText("●  " + theme.name);
     status_->style()->unpolish(status_);
@@ -429,6 +450,7 @@ void Window::refreshMistakeControls() {
         const QSignalBlocker blocker(checkBox_);
         checkBox_->setChecked(false);
     }
+    mistakeLegend_->setVisible(easy && checkBox_->isChecked());
     board_->setCheckMistakes(easy && checkBox_->isChecked());
 }
 
@@ -464,6 +486,7 @@ void Window::refresh() {
     }
     if (!messageTimer_.isActive()) {
         status_->setText(loading_ ? "Making sure your puzzle has exactly one solution…"
+            : automaticallyPaused_ ? "Paused while you were away. Return to this window to continue."
             : paused_ ? "No rush. Your game is paused."
             : game_ && game_->complete() ? completionText(*game_, savedSeconds_)
             : pencil_ ? "Notes on · toggle candidate numbers with 1–9. Press N for a final number."
@@ -479,35 +502,43 @@ void Window::installGame(std::unique_ptr<Game> game) {
     difficulty_ = game_->puzzle().difficulty;
     loading_ = false;
     paused_ = false;
+    automaticallyPaused_ = false;
     completing_ = game_->complete();
     board_->setLoading(false);
     board_->setPaused(false);
     refreshMistakeControls();
     board_->setGame(game_.get());
-    if (!game_->complete() && !statsModal_->isVisible())
+    if (!game_->complete() && !modalVisible())
         clock_.start();
+    refreshFocusPause();
     recordResult();
     refresh();
-    if (!statsModal_->isVisible())
+    if (!modalVisible())
         board_->setFocus();
 }
 
 void Window::requestPuzzle(Difficulty difficulty) {
-    if (loading_ || statsModal_->isVisible())
+    if (loading_ || modalVisible())
         return;
     if (game_ && !game_->complete() && (game_->hasProgress() || elapsedSeconds() > 0)) {
-        QMessageBox prompt(this);
-        prompt.setWindowTitle("Start a new puzzle?");
-        prompt.setText("Your current puzzle will be replaced.");
-        prompt.setInformativeText("Keep playing, or make a fresh start.");
-        auto *keep = prompt.addButton("Keep playing", QMessageBox::RejectRole);
-        auto *start = prompt.addButton("New puzzle", QMessageBox::AcceptRole);
-        prompt.setDefaultButton(keep);
-        prompt.exec();
-        if (prompt.clickedButton() != start)
-            return;
+        freezeClock();
+        newPuzzleModal_->setGeometry(centralWidget()->rect());
+        newPuzzleModal_->showConfirmation(difficulty);
+        refreshTimer();
+        return;
     }
     startPuzzle(difficulty);
+}
+
+bool Window::modalVisible() const {
+    return statsModal_->isVisible() || newPuzzleModal_->isVisible();
+}
+
+void Window::resumeAfterModal() {
+    if (game_ && !paused_ && !loading_ && !game_->complete())
+        clock_.start();
+    refreshTimer();
+    board_->setFocus();
 }
 
 void Window::startPuzzle(Difficulty difficulty) {
@@ -535,10 +566,11 @@ void Window::startPuzzle(Difficulty difficulty) {
             board_->setLoading(false);
             if (game_) {
                 difficulty_ = game_->puzzle().difficulty;
-                if (!paused_ && !game_->complete() && !statsModal_->isVisible())
+                if (!paused_ && !game_->complete() && !modalVisible())
                     clock_.start();
             }
             message(completed->error, true);
+            refreshFocusPause();
             refresh();
         }
         completed->deleteLater();
@@ -547,17 +579,17 @@ void Window::startPuzzle(Difficulty difficulty) {
 }
 
 void Window::enterDigit(int digit) {
-    if (!statsModal_->isVisible() && !paused_ && !loading_ && game_ && game_->enter(board_->selected(), digit, pencil_))
+    if (!modalVisible() && !paused_ && !loading_ && game_ && game_->enter(board_->selected(), digit, pencil_))
         moved();
 }
 
 void Window::erase() {
-    if (!statsModal_->isVisible() && !paused_ && !loading_ && game_ && game_->erase(board_->selected()))
+    if (!modalVisible() && !paused_ && !loading_ && game_ && game_->erase(board_->selected()))
         moved();
 }
 
 void Window::undo() {
-    if (statsModal_->isVisible() || paused_ || loading_ || !game_)
+    if (modalVisible() || paused_ || loading_ || !game_)
         return;
     const auto previous = game_->values();
     if (!game_->undo())
@@ -573,14 +605,14 @@ void Window::undo() {
 }
 
 void Window::hint() {
-    if (!statsModal_->isVisible() && !paused_ && !loading_ && game_ && game_->hint(board_->selected())) {
+    if (!modalVisible() && !paused_ && !loading_ && game_ && game_->hint(board_->selected())) {
         moved();
         message("One number revealed. You've got the rest.");
     }
 }
 
 void Window::toggleNotes() {
-    if (statsModal_->isVisible() || paused_ || loading_ || !game_ || game_->complete())
+    if (modalVisible() || paused_ || loading_ || !game_ || game_->complete())
         return;
     pencil_ = !pencil_;
     board_->setPencil(pencil_);
@@ -590,18 +622,55 @@ void Window::toggleNotes() {
 }
 
 void Window::togglePause() {
-    if (statsModal_->isVisible() || loading_ || !game_ || game_->complete())
+    if (modalVisible() || loading_ || !game_ || game_->complete())
         return;
-    if (!paused_)
+    automaticallyPaused_ = false;
+    setPaused(!paused_);
+    refreshFocusPause();
+    board_->setFocus();
+}
+
+void Window::setPaused(bool paused) {
+    if (paused_ == paused)
+        return;
+    if (paused)
         freezeClock();
-    else
+    else if (game_ && !loading_ && !game_->complete() && !modalVisible())
         clock_.start();
-    paused_ = !paused_;
+    paused_ = paused;
     board_->setPaused(paused_);
     messageTimer_.stop();
     refresh();
     save();
-    board_->setFocus();
+}
+
+void Window::updateWindowFocus(bool focused) {
+    windowFocused_ = focused;
+    if (focused) {
+        focusPauseTimer_.stop();
+        unfocusedClock_.invalidate();
+        if (automaticallyPaused_) {
+            automaticallyPaused_ = false;
+            setPaused(false);
+        }
+    } else {
+        if (!unfocusedClock_.isValid())
+            unfocusedClock_.start();
+        refreshFocusPause();
+    }
+}
+
+void Window::refreshFocusPause() {
+    focusPauseTimer_.stop();
+    if (windowFocused_ || autoPauseMilliseconds_ == 0 || !game_ || loading_ || paused_ || game_->complete())
+        return;
+    const qint64 remaining = autoPauseMilliseconds_ - unfocusedClock_.elapsed();
+    if (remaining > 0) {
+        focusPauseTimer_.start(static_cast<int>(remaining));
+        return;
+    }
+    automaticallyPaused_ = true;
+    setPaused(true);
 }
 
 void Window::moved() {
@@ -612,6 +681,7 @@ void Window::moved() {
         completing_ = false;
         clock_.start();
     }
+    refreshFocusPause();
     messageTimer_.stop();
     refresh();
     save();
@@ -644,7 +714,7 @@ void Window::recordResult(bool quitting) {
 }
 
 void Window::showStats() {
-    if (statsModal_->isVisible())
+    if (modalVisible())
         return;
     try {
         const auto statistics = Statistics::load(configDirectory_ + "/stats.json");
@@ -661,6 +731,17 @@ void Window::resizeEvent(QResizeEvent *event) {
     QMainWindow::resizeEvent(event);
     if (statsModal_)
         statsModal_->setGeometry(centralWidget()->rect());
+    if (newPuzzleModal_)
+        newPuzzleModal_->setGeometry(centralWidget()->rect());
+}
+
+bool Window::event(QEvent *event) {
+    const bool handled = QMainWindow::event(event);
+    if (event->type() == QEvent::WindowActivate)
+        updateWindowFocus(true);
+    else if (event->type() == QEvent::WindowDeactivate)
+        updateWindowFocus(false);
+    return handled;
 }
 
 void Window::message(const QString &text, bool error) {

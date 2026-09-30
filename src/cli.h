@@ -8,6 +8,7 @@ struct Options {
     QString configDirectory;
     QString difficulty;
     QStringList arguments;
+    int autoPauseSeconds = 60;
     bool dryRun = false;
     bool help = false;
     bool version = false;

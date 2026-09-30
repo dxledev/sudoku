@@ -115,8 +115,8 @@ void Board::paintCell(QPainter &painter, int index, const QRectF &rectangle) {
         cellFont.setWeight(game_->puzzle().clues[index] ? QFont::Medium : QFont::Normal);
         painter.setFont(cellFont);
         const bool highlightMistake = checkMistakes_ && game_->puzzle().difficulty == Difficulty::Easy && game_->wrong(index);
-        painter.setPen(theme_.color(highlightMistake ? "error"
-                                    : game_->puzzle().clues[index] ? "text" : "accent"));
+        painter.setPen(highlightMistake ? theme_.mistakeColor
+                                      : game_->puzzle().clues[index] ? theme_.color("text") : theme_.correctColor);
         painter.drawText(rectangle, Qt::AlignCenter, QString::number(value));
     } else {
         cellFont.setPixelSize(std::max(9, qRound(rectangle.width() * .19)));

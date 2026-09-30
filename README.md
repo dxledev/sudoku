@@ -13,9 +13,11 @@ cmake --build build --parallel 4
 ./build/sudoku
 ```
 
-The last game resumes automatically. Start a fresh game with `./build/sudoku --difficulty expert`, or choose a difficulty in the window. Replacing an unfinished game through the UI asks for confirmation.
+The last game resumes automatically. Start a fresh game with `./build/sudoku --difficulty expert`, or choose a difficulty in the window. Replacing an unfinished game through the UI asks for confirmation in a modal inside the window. Choose **Keep playing** or press **Escape** to cancel, or choose **New puzzle** to confirm. The timer pauses while the modal is open.
 
 The native window can be tiled, floated, maximized, and resized by the compositor. Its minimum size is 720 × 760 logical pixels to keep the board and controls usable. Wayland is selected automatically when `WAYLAND_DISPLAY` is present; `QT_QPA_PLATFORM` can override this.
+
+After one continuous minute without window focus, the game automatically pauses, hides the board, and stops the timer. Returning to the window resumes an automatic pause; a manual pause stays paused. Brief trips away reset the countdown when you return. Change the delay with `./build/sudoku --auto-pause-seconds 120`, or disable it with `--auto-pause-seconds 0`. The initial minute away still counts as playing time.
 
 ## Pencil notes / scratchpad
 
@@ -35,6 +37,8 @@ Entering a final number clears that tile's notes. A correct final number also re
 | Ctrl+N | New puzzle at the current difficulty |
 
 Mistake highlighting is available only on Easy and can be switched off. It is hidden and disabled on Medium, Hard, and Expert. The mistake counter works on every difficulty, including when highlighting is off, and also appears in the completion message. For each wrong digit in each tile, the first entry counts, the second separate attempt is forgiven, and the third and later separate attempts count again. A repeated digit becomes a separate attempt only when a different final number was entered in that tile in between. Erasing, undoing, or adding pencil notes does not reset that protection. Undo keeps the accumulated mistake count.
+
+When highlighting is enabled, a Correct / Incorrect legend below the checkbox shows the colors used for entered digits. Correct entries use the theme's accent unless it is red, pink, or a nearby warm hue; those accents generate a complementary non-red color with similar saturation and brightness, adjusted for readability. Incorrect entries use the generated red. Both entry colors are cached in the loaded theme and update with theme changes.
 
 Hints reveal the selected editable tile, or another unsolved tile when the selection is fixed or already correct. A solved puzzle displays an animated “Solved” overlay over the blurred grid. Undo reopens the changed tile and resumes the timer, so completing it again replays the animation.
 
@@ -75,7 +79,7 @@ By default, the file lives at `$XDG_CONFIG_HOME/sudoku/theme.json`, falling back
 
 `--dry-run` validates and prints the proposed JSON without writing files. `theme path`, `theme show`, and `theme list` are read-only. Quote `#RRGGBB` assignments as shown in the examples.
 
-See [themes/forest.json](themes/forest.json) for the complete schema. All thirteen colors are independently configurable: `background`, `surface`, `surface_alt`, `text`, `muted`, `accent`, `accent_text`, `border`, `grid`, `selection`, `related`, `matching`, and `error`. Direct edits to the JSON file also reload live, including editors that save by replacing the file. Invalid edits leave the running UI on its last valid palette and display an error; correct the file to resume reloads. An invalid file at startup produces a clear CLI error instead of overwriting it.
+See [themes/forest.json](themes/forest.json) for the complete schema. All twelve colors are independently configurable: `background`, `surface`, `surface_alt`, `text`, `muted`, `accent`, `accent_text`, `border`, `grid`, `selection`, `related`, and `matching`. Mistake highlighting automatically generates a red tone from the theme's surface and accent colors, adjusting brightness for readability across tile backgrounds. The color is cached in the loaded theme and reused during painting. It is not configurable through JSON or the CLI; legacy `error` values are ignored and omitted when saving. Direct edits to the JSON file also reload live, including editors that save by replacing the file. Invalid edits leave the running UI on its last valid palette and display an error; correct the file to resume reloads. An invalid file at startup produces a clear CLI error instead of overwriting it.
 
 ### Follow a theme file
 

@@ -9,7 +9,6 @@
 #include <QGraphicsOpacityEffect>
 #include <QLabel>
 #include <QProcess>
-#include <QMessageBox>
 #include <QSaveFile>
 #include <cstdio>
 #include <QTemporaryDir>
@@ -21,6 +20,128 @@ using namespace sudoku;
 class UiTests : public QObject {
     Q_OBJECT
 private slots:
+    void automaticPauseFocusTransitions() {
+        QTemporaryDir directory;
+        std::mt19937 random(91);
+        Game game(generatePuzzle(Difficulty::Easy, random));
+        saveSession(directory.filePath("game.json"), game, 120, true);
+        Window window(directory.path(), presetTheme("forest"), {}, nullptr, 1);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        QTest::qWait(1100);
+        QVERIFY(!window.isPaused());
+        QVERIFY(window.elapsedSeconds() > 120);
+
+        QWidget otherWindow;
+        otherWindow.show();
+        otherWindow.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&otherWindow));
+        QTest::qWait(350);
+        QVERIFY(!window.isPaused());
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        QTest::qWait(800);
+        QVERIFY(!window.isPaused());
+
+        otherWindow.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&otherWindow));
+        QTest::qWait(500);
+        QVERIFY(!window.isPaused());
+        QTRY_VERIFY_WITH_TIMEOUT(window.isPaused(), 1500);
+        const auto seconds = window.elapsedSeconds();
+        const auto values = window.game()->values();
+        const auto notes = window.game()->notes();
+        window.enterDigit(1);
+        window.toggleNotes();
+        window.erase();
+        window.undo();
+        window.hint();
+        QVERIFY(window.game()->values() == values);
+        QVERIFY(window.game()->notes() == notes);
+        QCOMPARE(window.game()->hints(), 0);
+        QCOMPARE(window.findChild<QPushButton *>("pause")->accessibleName(), QString("Resume game"));
+        for (auto *digit : window.findChildren<QPushButton *>("digit"))
+            QVERIFY(!digit->isEnabled());
+        QTest::qWait(1100);
+        QCOMPARE(window.elapsedSeconds(), seconds);
+        qint64 savedSeconds = 0;
+        bool checkMistakes = false;
+        loadSession(directory.filePath("game.json"), savedSeconds, checkMistakes);
+        QCOMPARE(savedSeconds, seconds);
+
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        QVERIFY(!window.isPaused());
+        QTRY_VERIFY(window.elapsedSeconds() > seconds);
+        window.close();
+    }
+
+    void automaticPausePreservesManualPause_data() {
+        QTest::addColumn<int>("delaySeconds");
+        QTest::addColumn<bool>("manualPause");
+        QTest::newRow("manual") << 1 << true;
+        QTest::newRow("disabled") << 0 << false;
+    }
+
+    void automaticPausePreservesManualPause() {
+        QFETCH(int, delaySeconds);
+        QFETCH(bool, manualPause);
+        QTemporaryDir directory;
+        std::mt19937 random(91);
+        Game game(generatePuzzle(Difficulty::Easy, random));
+        saveSession(directory.filePath("game.json"), game, 120, true);
+        Window window(directory.path(), presetTheme("forest"), {}, nullptr, delaySeconds);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        if (manualPause)
+            window.togglePause();
+        QWidget otherWindow;
+        otherWindow.show();
+        otherWindow.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&otherWindow));
+        QTest::qWait(1200);
+        QCOMPARE(window.isPaused(), manualPause);
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        QCOMPARE(window.isPaused(), manualPause);
+        if (manualPause) {
+            QCOMPARE(window.elapsedSeconds(), qint64(120));
+            window.togglePause();
+            QVERIFY(!window.isPaused());
+        } else {
+            QVERIFY(window.elapsedSeconds() > 120);
+        }
+        window.close();
+    }
+
+    void automaticPauseWithStatisticsOpen() {
+        QTemporaryDir directory;
+        std::mt19937 random(91);
+        Game game(generatePuzzle(Difficulty::Easy, random));
+        saveSession(directory.filePath("game.json"), game, 120, true);
+        Window window(directory.path(), presetTheme("forest"), {}, nullptr, 1);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        window.showStats();
+        const auto seconds = window.elapsedSeconds();
+        auto *modal = window.findChild<StatsModal *>("statsModal");
+        QWidget otherWindow;
+        otherWindow.show();
+        otherWindow.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&otherWindow));
+        QTRY_VERIFY_WITH_TIMEOUT(window.isPaused(), 1500);
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        QVERIFY(!window.isPaused());
+        QVERIFY(modal->isVisible());
+        QTest::qWait(1100);
+        QCOMPARE(window.elapsedSeconds(), seconds);
+        QTest::mouseClick(modal->findChild<QPushButton *>("closeStats"), Qt::LeftButton);
+        QVERIFY(modal->isHidden());
+        QTRY_VERIFY(window.elapsedSeconds() > seconds);
+        window.close();
+    }
+
     void statisticsModal() {
         QTemporaryDir directory;
         std::mt19937 random(91);
@@ -108,31 +229,104 @@ private slots:
         const int cell = static_cast<int>(std::distance(game.values().begin(), std::find(game.values().begin(), game.values().end(), 0)));
         QVERIFY(game.enter(cell, game.puzzle().solution[cell] % 9 + 1));
         saveSession(directory.filePath("game.json"), game, 180, true);
+        const auto themePath = directory.filePath("theme.json");
+        writeJson(themePath, presetTheme("forest").toJson());
         Window window(directory.path(), presetTheme("forest"));
         window.show();
         QVERIFY(QTest::qWaitForWindowActive(&window));
         const auto originalId = window.game()->id();
-        QTimer::singleShot(0, [] {
-            if (auto *prompt = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
-                for (auto *button : prompt->buttons()) {
-                    if (prompt->buttonRole(button) == QMessageBox::RejectRole)
-                        button->click();
-                }
-            }
-        });
+        auto *modal = window.findChild<NewPuzzleModal *>("newPuzzleModal");
+        QVERIFY(modal);
+        auto *keep = modal->findChild<QPushButton *>("keepPlaying");
+        auto *start = modal->findChild<QPushButton *>("startNewPuzzle");
+        QVERIFY(keep);
+        QVERIFY(start);
         QTest::mouseClick(window.findChild<QPushButton *>("primary"), Qt::LeftButton);
+        QVERIFY(modal->isVisible());
+        QVERIFY(!modal->isWindow());
+        QCOMPARE(modal->window(), &window);
+        QVERIFY(!QApplication::activeModalWidget());
+        QCOMPARE(modal->geometry(), window.centralWidget()->rect());
+        QCOMPARE(QApplication::focusWidget(), keep);
+        QTest::keyClick(keep, Qt::Key_Tab);
+        QCOMPARE(QApplication::focusWidget(), start);
+        QTest::keyClick(start, Qt::Key_Tab);
+        QCOMPARE(QApplication::focusWidget(), keep);
+        QTest::keyClick(keep, Qt::Key_Tab, Qt::ShiftModifier);
+        QCOMPARE(QApplication::focusWidget(), start);
+        const auto seconds = window.elapsedSeconds();
+        QTest::qWait(1100);
+        QCOMPARE(window.elapsedSeconds(), seconds);
+        const auto values = window.game()->values();
+        const auto notes = window.game()->notes();
+        window.enterDigit(game.puzzle().solution[cell]);
+        window.erase();
+        window.undo();
+        window.hint();
+        window.toggleNotes();
+        QTest::keyClick(start, Qt::Key_Space);
+        QTest::keyClick(start, Qt::Key_N, Qt::ControlModifier);
+        window.showStats();
+        QVERIFY(window.game()->values() == values);
+        QVERIFY(window.game()->notes() == notes);
+        QCOMPARE(window.game()->hints(), 0);
+        QVERIFY(!window.isPaused());
+        QVERIFY(window.findChild<StatsModal *>("statsModal")->isHidden());
+        QVERIFY(modal->isVisible());
+        writeJson(themePath, presetTheme("paper").toJson());
+        QTRY_COMPARE(window.theme().name, QString("paper"));
+        window.resize(720, 760);
+        QTest::qWait(80);
+        QCOMPARE(modal->geometry(), window.centralWidget()->rect());
+        auto *card = modal->findChild<QWidget *>("newPuzzleCard");
+        QVERIFY(modal->rect().contains(card->geometry()));
+        QVERIFY(std::abs(card->geometry().center().x() - modal->rect().center().x()) <= 1);
+        QVERIFY(std::abs(card->geometry().center().y() - modal->rect().center().y()) <= 1);
+        const auto screenshots = qEnvironmentVariable("SUDOKU_TEST_SCREENSHOTS");
+        if (!screenshots.isEmpty()) {
+            QDir().mkpath(screenshots);
+            QVERIFY(window.grab().save(screenshots + "/new-puzzle-paper-compact.png"));
+        }
+        QTest::mouseClick(keep, Qt::LeftButton);
+        QVERIFY(modal->isHidden());
+        QCOMPARE(QApplication::focusWidget(), window.board());
         QCOMPARE(window.game()->id(), originalId);
         QVERIFY(!QFileInfo::exists(directory.filePath("stats.json")));
-        QTimer::singleShot(0, [] {
-            if (auto *prompt = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
-                for (auto *button : prompt->buttons()) {
-                    if (prompt->buttonRole(button) == QMessageBox::AcceptRole)
-                        button->click();
-                }
-            }
-        });
-        QTest::mouseClick(window.findChild<QPushButton *>("primary"), Qt::LeftButton);
+        QTRY_VERIFY(window.elapsedSeconds() > seconds);
+        QTest::keyClick(window.board(), Qt::Key_N, Qt::ControlModifier);
+        QVERIFY(modal->isVisible());
+        QTest::keyClick(keep, Qt::Key_Return);
+        QVERIFY(modal->isHidden());
+        QCOMPARE(window.game()->id(), originalId);
+        window.togglePause();
+        QVERIFY(window.isPaused());
+        QTest::keyClick(window.board(), Qt::Key_N, Qt::ControlModifier);
+        QVERIFY(modal->isVisible());
+        QTest::keyClick(keep, Qt::Key_Escape);
+        QVERIFY(modal->isHidden());
+        QVERIFY(window.isPaused());
+        const auto pausedSeconds = window.elapsedSeconds();
+        QTest::qWait(1100);
+        QCOMPARE(window.elapsedSeconds(), pausedSeconds);
+        window.togglePause();
+        QPushButton *medium = nullptr;
+        for (auto *button : window.findChildren<QPushButton *>("difficulty")) {
+            if (button->text() == "Medium")
+                medium = button;
+        }
+        QVERIFY(medium);
+        QTest::mouseClick(medium, Qt::LeftButton);
+        QVERIFY(modal->isVisible());
+        QVERIFY(!medium->isChecked());
+        QTest::keyClick(keep, Qt::Key_Escape);
+        QCOMPARE(window.game()->puzzle().difficulty, Difficulty::Easy);
+        QCOMPARE(window.game()->id(), originalId);
+        QTest::mouseClick(medium, Qt::LeftButton);
+        QTest::keyClick(keep, Qt::Key_Tab);
+        QTest::keyClick(start, Qt::Key_Return);
+        QVERIFY(modal->isHidden());
         QTRY_VERIFY_WITH_TIMEOUT(window.game()->id() != originalId, 15000);
+        QCOMPARE(window.game()->puzzle().difficulty, Difficulty::Medium);
         QCOMPARE(Statistics::load(directory.filePath("stats.json")).at(Difficulty::Easy).quits, 1);
         window.close();
     }
@@ -195,31 +389,59 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(window.game() != nullptr, 15000);
         auto *check = window.findChild<QCheckBox *>("checkMistakes");
         auto *counter = window.findChild<QLabel *>("mistakeCount");
+        auto *legend = window.findChild<QWidget *>("mistakeLegend");
+        auto *correctLegend = window.findChild<QLabel *>("correctLegend");
+        auto *incorrectLegend = window.findChild<QLabel *>("incorrectLegend");
         QVERIFY(check);
         QVERIFY(counter);
+        QVERIFY(legend);
+        QVERIFY(correctLegend);
+        QVERIFY(incorrectLegend);
         QCOMPARE(check->isVisible(), difficulty == Difficulty::Easy);
+        QCOMPARE(legend->isVisible(), difficulty == Difficulty::Easy);
+        QCOMPARE(correctLegend->text(), QString("●  Correct"));
+        QCOMPARE(incorrectLegend->text(), QString("●  Incorrect"));
+        QCOMPARE(correctLegend->palette().color(QPalette::WindowText), window.theme().correctColor);
+        QCOMPARE(incorrectLegend->palette().color(QPalette::WindowText), window.theme().mistakeColor);
         QCOMPARE(check->isChecked(), difficulty == Difficulty::Easy);
         QCOMPARE(counter->text(), QString("Mistakes: 0"));
         const int cell = window.board()->selected();
         const int wrong = window.game()->puzzle().solution[cell] % 9 + 1;
         window.enterDigit(wrong);
         QCOMPARE(counter->text(), QString("Mistakes: 1"));
-        const auto image = window.board()->grab().toImage();
-        const auto grid = window.board()->boardRect();
-        const qreal side = grid.width() / 9;
-        const QRectF tile(grid.x() + cell % 9 * side + side * .2,
-                          grid.y() + cell / 9 * side + side * .2, side * .6, side * .6);
-        const auto pixels = QRectF(tile.topLeft() * image.devicePixelRatio(), tile.size() * image.devicePixelRatio()).toRect();
-        bool containsErrorColor = false;
-        for (int y = pixels.top(); y <= pixels.bottom(); ++y) {
-            for (int x = pixels.left(); x <= pixels.right(); ++x)
-                containsErrorColor |= image.pixelColor(x, y) == window.theme().color("error");
-        }
-        QCOMPARE(containsErrorColor, difficulty == Difficulty::Easy);
+        const auto tileContainsColor = [&](const QColor &color) {
+            const auto image = window.board()->grab().toImage();
+            const auto grid = window.board()->boardRect();
+            const qreal side = grid.width() / 9;
+            const QRectF tile(grid.x() + cell % 9 * side + side * .2,
+                              grid.y() + cell / 9 * side + side * .2, side * .6, side * .6);
+            const auto pixels = QRectF(tile.topLeft() * image.devicePixelRatio(), tile.size() * image.devicePixelRatio()).toRect();
+            for (int y = pixels.top(); y <= pixels.bottom(); ++y) {
+                for (int x = pixels.left(); x <= pixels.right(); ++x) {
+                    if (image.pixelColor(x, y) == color)
+                        return true;
+                }
+            }
+            return false;
+        };
+        QCOMPARE(tileContainsColor(window.theme().mistakeColor), difficulty == Difficulty::Easy);
         const auto screenshots = qEnvironmentVariable("SUDOKU_TEST_SCREENSHOTS");
         if (!screenshots.isEmpty() && !resume) {
             QDir().mkpath(screenshots);
             QVERIFY(window.grab().save(screenshots + "/mistakes-" + QString::fromUtf8(difficulties[level].name.data()) + ".png"));
+        }
+        if (difficulty == Difficulty::Easy) {
+            for (const auto &name : {"paper", "rose"}) {
+                const auto previousColor = window.theme().mistakeColor;
+                writeJson(directory.filePath("theme.json"), presetTheme(name).toJson());
+                QTRY_COMPARE(window.theme().name, QString(name));
+                QVERIFY(window.theme().mistakeColor != previousColor);
+                QVERIFY(tileContainsColor(window.theme().mistakeColor));
+                QVERIFY(!tileContainsColor(previousColor));
+                QCOMPARE(correctLegend->palette().color(QPalette::WindowText), window.theme().correctColor);
+                QCOMPARE(incorrectLegend->palette().color(QPalette::WindowText), window.theme().mistakeColor);
+            }
+            QVERIFY(window.theme().correctColor != window.theme().color("accent"));
         }
         window.enterDigit(wrong);
         QCOMPARE(counter->text(), QString("Mistakes: 1"));
@@ -230,6 +452,9 @@ private slots:
         window.enterDigit(wrong);
         QCOMPARE(counter->text(), QString("Mistakes: 1"));
         window.enterDigit(window.game()->puzzle().solution[cell]);
+        QVERIFY(tileContainsColor(correctLegend->palette().color(QPalette::WindowText)));
+        if (!screenshots.isEmpty() && difficulty == Difficulty::Easy && !resume)
+            QVERIFY(window.grab().save(screenshots + "/correct-rose.png"));
         window.enterDigit(wrong);
         QCOMPARE(counter->text(), QString("Mistakes: 1"));
         window.enterDigit(wrong % 9 + 1);
@@ -241,6 +466,11 @@ private slots:
         if (difficulty == Difficulty::Easy) {
             QTest::mouseClick(check, Qt::LeftButton);
             QVERIFY(!check->isChecked());
+            QVERIFY(!legend->isVisible());
+            QTest::mouseClick(check, Qt::LeftButton);
+            QVERIFY(legend->isVisible());
+            QTest::mouseClick(check, Qt::LeftButton);
+            QVERIFY(!legend->isVisible());
             window.enterDigit(wrong);
             QCOMPARE(counter->text(), QString("Mistakes: 3"));
             window.enterDigit(window.game()->puzzle().solution[cell]);
@@ -254,6 +484,7 @@ private slots:
         QVERIFY(QTest::qWaitForWindowActive(&restored));
         QCOMPARE(restored.game()->mistakes(), window.game()->mistakes());
         QCOMPARE(restored.findChild<QCheckBox *>("checkMistakes")->isVisible(), difficulty == Difficulty::Easy);
+        QVERIFY(!restored.findChild<QWidget *>("mistakeLegend")->isVisible());
         restored.close();
     }
 
@@ -677,6 +908,7 @@ private slots:
         corrupt.close();
         QTest::qWait(120);
         QVERIFY(window.theme() == last);
+        QCOMPARE(window.findChild<QLabel *>("status")->palette().color(QPalette::WindowText), last.mistakeColor);
         writeJson(path, presetTheme("paper").toJson());
         QTRY_COMPARE_WITH_TIMEOUT(window.theme().name, QString("paper"), 3000);
 

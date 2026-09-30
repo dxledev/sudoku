@@ -3,6 +3,7 @@
 #include "board.h"
 #include "theme_watcher.h"
 #include "stats_modal.h"
+#include "new_puzzle_modal.h"
 #include <QCheckBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -32,7 +33,8 @@ private:
 class Window : public QMainWindow {
     Q_OBJECT
 public:
-    explicit Window(QString configDirectory, Theme theme, const QString &difficulty = {}, QWidget *parent = nullptr);
+    explicit Window(QString configDirectory, Theme theme, const QString &difficulty = {}, QWidget *parent = nullptr,
+                    int autoPauseSeconds = 60);
     ~Window() override;
     const Game *game() const { return game_.get(); }
     Board *board() const { return board_; }
@@ -50,6 +52,7 @@ public slots:
     void showStats();
 
 protected:
+    bool event(QEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
 
@@ -61,7 +64,12 @@ private:
     Difficulty difficulty_ = Difficulty::Easy;
     qint64 savedSeconds_ = 0;
     QElapsedTimer clock_;
+    QElapsedTimer unfocusedClock_;
     QTimer ticker_, autosave_, messageTimer_;
+    QTimer focusPauseTimer_;
+    int autoPauseMilliseconds_;
+    bool windowFocused_ = false;
+    bool automaticallyPaused_ = false;
     bool paused_ = false;
     bool pencil_ = false;
     bool loading_ = false;
@@ -72,7 +80,9 @@ private:
     QPushButton *pauseButton_, *notesButton_, *undoButton_, *eraseButton_, *hintButton_, *newButton_;
     QCheckBox *checkBox_;
     QWidget *tools_;
+    QWidget *mistakeLegend_;
     StatsModal *statsModal_ = nullptr;
+    NewPuzzleModal *newPuzzleModal_ = nullptr;
     std::array<QPushButton *, 4> difficultyButtons_{};
     std::array<QPushButton *, 9> digitButtons_{};
     void buildInterface();
@@ -84,6 +94,7 @@ private:
     QWidget *buildTimerCard();
     QGridLayout *buildDifficultyPicker();
     QWidget *buildTools();
+    QWidget *buildMistakeLegend();
     QGridLayout *buildKeypad();
     QHBoxLayout *buildActions();
     void applyTheme();
@@ -93,9 +104,14 @@ private:
     void moved();
     void startPuzzle(Difficulty difficulty);
     void requestPuzzle(Difficulty difficulty);
+    bool modalVisible() const;
+    void resumeAfterModal();
     void installGame(std::unique_ptr<Game> game);
     void save();
     void freezeClock();
+    void setPaused(bool paused);
+    void updateWindowFocus(bool focused);
+    void refreshFocusPause();
     void message(const QString &text, bool error = false);
     void recordResult(bool quitting = false);
 };

@@ -132,7 +132,7 @@ Theme mapPalette(const Palette &palette, const QString &name) {
         {"accent", accent}, {"accent_text", pick(palette, {"on_primary", "onPrimary", "mOnPrimary"}, onAccent)},
         {"border", mix(surface, outline, .25)}, {"grid", mix(surface, outline, .55)},
         {"selection", mix(surface, accent, .28)}, {"related", mix(surface, accent, .07)},
-        {"matching", mix(surface, accent, .17)}, {"error", pick(palette, {"danger", "error", "red", "mError"}, QColor("#e78284"))},
+        {"matching", mix(surface, accent, .17)},
     }, {}, {}};
     // Use the same 8-bit channels as the JSON to avoid repeated save/reload cycles.
     return parseTheme(theme.toJson());

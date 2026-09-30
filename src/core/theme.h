@@ -12,6 +12,8 @@ struct Theme {
     QMap<QString, QColor> colors;
     QString sourceKind;
     QString sourcePath;
+    QColor mistakeColor = {};
+    QColor correctColor = {};
     QColor color(const QString &key) const { return colors.value(key); }
     QString hex(const QString &key) const { return color(key).name(); }
     QJsonObject toJson() const;

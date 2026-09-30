@@ -400,6 +400,71 @@ private slots:
             QVERIFY(parseTheme(presetTheme(name).toJson()) == presetTheme(name));
     }
 
+    void automaticMistakeColor() {
+        QVERIFY(!colorKeys().contains("error"));
+        QSet<QString> generated;
+        for (const auto &name : presetNames()) {
+            const auto theme = presetTheme(name);
+            const auto color = theme.mistakeColor;
+            QVERIFY(color.isValid());
+            QVERIFY(color.hslHueF() < .04 || color.hslHueF() > .96);
+            QVERIFY(color.red() > color.green());
+            QVERIFY(color.red() > color.blue());
+            QVERIFY(!theme.colors.contains("error"));
+            QVERIFY(!theme.toJson().value("colors").toObject().contains("error"));
+            QCOMPARE(parseTheme(theme.toJson()).mistakeColor, color);
+            generated.insert(color.name());
+
+            auto legacy = theme.toJson();
+            auto colors = legacy.value("colors").toObject();
+            colors.insert("error", "#00ff00");
+            legacy.insert("colors", colors);
+            QCOMPARE(parseTheme(legacy), theme);
+            QVERIFY_EXCEPTION_THROWN(setColors(theme, {"error=#ff0000"}), std::invalid_argument);
+        }
+        QCOMPARE(generated.size(), presetNames().size());
+        const auto forest = presetTheme("forest");
+        QVERIFY(setColors(forest, {"accent=#ff0000"}).mistakeColor != forest.mistakeColor);
+        const auto light = setColors(presetTheme("paper"), {"accent=#777777"});
+        const auto dark = setColors(forest, {"accent=#777777"});
+        QVERIFY(light.mistakeColor.lightnessF() < dark.mistakeColor.lightnessF());
+    }
+
+    void correctColorPreservesNonRedAccents() {
+        for (const auto &name : {"forest", "paper", "slate"}) {
+            const auto theme = presetTheme(name);
+            QCOMPARE(theme.correctColor, theme.color("accent"));
+        }
+        for (const auto &accent : {"#00a777", "#99aaff", "#ffdd00", "#9966cc", "#777777", "#ffffff", "#000000"}) {
+            const auto theme = setColors(presetTheme("forest"), {QString("accent=") + accent});
+            QCOMPARE(theme.correctColor, QColor(accent));
+        }
+    }
+
+    void correctColorAvoidsRedAccents_data() {
+        QTest::addColumn<QString>("preset");
+        QTest::addColumn<QString>("accent");
+        for (const auto &preset : {"forest", "paper", "rose"}) {
+            for (const auto &accent : {"#ff0000", "#ffb4a4", "#efb7ce", "#c96476", "#ff6000"})
+                QTest::newRow(qPrintable(QString(preset) + accent)) << QString(preset) << QString(accent);
+        }
+    }
+
+    void correctColorAvoidsRedAccents() {
+        QFETCH(QString, preset);
+        QFETCH(QString, accent);
+        const auto theme = setColors(presetTheme(preset), {"accent=" + accent});
+        const auto correct = theme.correctColor;
+        QVERIFY(correct.isValid());
+        QVERIFY(correct.hslHueF() > .125 && correct.hslHueF() < .875);
+        QVERIFY(correct.green() > correct.red());
+        QVERIFY(correct != theme.mistakeColor);
+        QCOMPARE(theme.hex("accent"), accent);
+        QCOMPARE(parseTheme(theme.toJson()), theme);
+        QVERIFY(!theme.toJson().value("colors").toObject().contains("correct"));
+        QVERIFY(theme.mistakeColor.hslHueF() < .04 || theme.mistakeColor.hslHueF() > .96);
+    }
+
     void externalPalettes() {
         QTemporaryDir directory;
         const auto qml = directory.filePath("Colors.qml");
@@ -431,7 +496,11 @@ private slots:
         const auto dynamic = followTheme("caelestia", caelestia);
         QCOMPARE(dynamic.hex("background"), QString("#09191a"));
         QCOMPARE(dynamic.hex("accent"), QString("#89b7be"));
-        QCOMPARE(dynamic.hex("error"), QString("#d69a8b"));
+        QVERIFY(dynamic.mistakeColor != QColor("#d69a8b"));
+        auto palette = readJson(caelestia).value("colours").toObject();
+        palette.insert("red", "00ff00");
+        writeJson(caelestia, {{"colours", palette}});
+        QCOMPARE(followTheme("caelestia", caelestia).mistakeColor, dynamic.mistakeColor);
 
         const auto noctalia = directory.filePath("noctalia.json");
         writeJson(noctalia, {{"dark", QJsonObject{

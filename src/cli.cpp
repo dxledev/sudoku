@@ -23,13 +23,19 @@ Options parseOptions(QStringList arguments) {
     Options result;
     for (int index = 0; index < arguments.size(); ++index) {
         const QString argument = arguments[index];
-        if (argument == "--config-dir" || argument == "--difficulty") {
+        if (argument == "--config-dir" || argument == "--difficulty" || argument == "--auto-pause-seconds") {
             if (index + 1 >= arguments.size() || arguments[index + 1].startsWith("--"))
                 throw std::invalid_argument((argument + " requires a value").toStdString());
             const auto value = arguments[++index];
             if (argument == "--config-dir")
                 result.configDirectory = QDir(value).absolutePath();
-            else {
+            else if (argument == "--auto-pause-seconds") {
+                bool valid = false;
+                const int seconds = value.toInt(&valid);
+                if (!valid || seconds < 0 || seconds > 86400)
+                    throw std::invalid_argument("--auto-pause-seconds requires an integer from 0 to 86400");
+                result.autoPauseSeconds = seconds;
+            } else {
                 parseDifficulty(value.toStdString());
                 result.difficulty = value;
             }
@@ -55,6 +61,7 @@ void printHelp() {
 
 Usage:
   sudoku [--difficulty easy|medium|hard|expert] [--config-dir DIRECTORY]
+         [--auto-pause-seconds SECONDS]
   sudoku theme list
   sudoku theme path
   sudoku theme show
@@ -72,7 +79,9 @@ Theme changes are saved atomically to theme.json and live-reloaded by open windo
 All commands accept --config-dir DIRECTORY (or SUDOKU_CONFIG_DIR).
 --dry-run prints the proposed JSON without writing any files.
 --difficulty starts a fresh puzzle; otherwise the last game resumes.
+--auto-pause-seconds pauses after this long without window focus (default: 60; 0 disables).
 Colors use #RRGGBB. Run theme show for the full schema.
+Mistake highlighting uses a cached red tone generated from the current theme.
 )";
 }
 

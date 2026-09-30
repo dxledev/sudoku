@@ -3,27 +3,96 @@
 
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <stdexcept>
 
 namespace sudoku {
 namespace {
 
 const QMap<QString, QStringList> palettes{
-    {"forest", {"#101819", "#182324", "#1e2d2e", "#edf3ed", "#91a6a2", "#b6e3c6", "#152c24", "#304243", "#536967", "#355c4b", "#203230", "#2b453b", "#ff9b95"}},
-    {"paper", {"#f4f1e9", "#fffcf5", "#ebe7dd", "#292f2c", "#6f7970", "#315c48", "#ffffff", "#ddd8cb", "#9aab9b", "#ccdfcc", "#eeeee1", "#dfebd7", "#bd4740"}},
-    {"slate", {"#131720", "#1c2230", "#252e40", "#ebeffa", "#97a3be", "#b2c7ff", "#1d2a4b", "#34405a", "#576986", "#3b4e78", "#252e44", "#30415d", "#ffa6b0"}},
-    {"rose", {"#211a22", "#2c232e", "#382d3b", "#f7eaf1", "#b8a0b2", "#efb7ce", "#3a2131", "#4e3a4c", "#85687f", "#654258", "#3b2c3b", "#4c3447", "#ffad91"}},
+    {"forest", {"#101819", "#182324", "#1e2d2e", "#edf3ed", "#91a6a2", "#b6e3c6", "#152c24", "#304243", "#536967", "#355c4b", "#203230", "#2b453b"}},
+    {"paper", {"#f4f1e9", "#fffcf5", "#ebe7dd", "#292f2c", "#6f7970", "#315c48", "#ffffff", "#ddd8cb", "#9aab9b", "#ccdfcc", "#eeeee1", "#dfebd7"}},
+    {"slate", {"#131720", "#1c2230", "#252e40", "#ebeffa", "#97a3be", "#b2c7ff", "#1d2a4b", "#34405a", "#576986", "#3b4e78", "#252e44", "#30415d"}},
+    {"rose", {"#211a22", "#2c232e", "#382d3b", "#f7eaf1", "#b8a0b2", "#efb7ce", "#3a2131", "#4e3a4c", "#85687f", "#654258", "#3b2c3b", "#4c3447"}},
 };
 
 [[noreturn]] void invalid(const QString &message) {
     throw std::invalid_argument(message.toStdString());
 }
 
+double luminance(const QColor &color) {
+    const auto linear = [](double component) {
+        return component <= .04045 ? component / 12.92 : std::pow((component + .055) / 1.055, 2.4);
+    };
+    return .2126 * linear(color.redF()) + .7152 * linear(color.greenF()) + .0722 * linear(color.blueF());
+}
+
+double minimumContrast(const QColor &color, const std::array<double, 4> &backgrounds) {
+    const double foreground = luminance(color);
+    double contrast = 21;
+    for (const double background : backgrounds)
+        contrast = std::min(contrast, (std::max(foreground, background) + .05)
+                                      / (std::min(foreground, background) + .05));
+    return contrast;
+}
+
+QColor readableEntryColor(const Theme &theme, double hue, double minimumSaturation) {
+    const auto accent = theme.color("accent");
+    const double saturation = std::clamp(double(accent.hslSaturationF()), minimumSaturation, .75);
+    const double preferredLightness = std::clamp(double(accent.lightnessF()), .35, .8);
+    const std::array backgrounds{luminance(theme.color("surface")), luminance(theme.color("selection")),
+                                luminance(theme.color("related")), luminance(theme.color("matching"))};
+    const auto candidate = [hue, saturation](double lightness) {
+        return QColor::fromRgb(QColor::fromHslF(hue, saturation, lightness).rgb());
+    };
+    auto best = candidate(preferredLightness);
+    double bestContrast = minimumContrast(best, backgrounds);
+    double closestLightness = 1;
+    if (bestContrast >= 4.5)
+        return best;
+    for (int step = 25; step <= 85; ++step) {
+        const double lightness = step / 100.0;
+        const auto color = candidate(lightness);
+        const double contrast = minimumContrast(color, backgrounds);
+        const double distance = std::abs(lightness - preferredLightness);
+        if ((contrast >= 4.5 && distance < closestLightness)
+            || (bestContrast < 4.5 && contrast > bestContrast)) {
+            best = color;
+            bestContrast = contrast;
+            if (contrast >= 4.5)
+                closestLightness = distance;
+        }
+    }
+    return best;
+}
+
+QColor generateMistakeColor(const Theme &theme) {
+    const auto surface = theme.color("surface");
+    const double hue = std::fmod(1.01 + .025 * (surface.redF() - surface.blueF()), 1.0);
+    return readableEntryColor(theme, hue, .45);
+}
+
+QColor generateCorrectColor(const Theme &theme) {
+    const auto accent = theme.color("accent");
+    const double hue = accent.hslHueF();
+    const bool redAdjacent = hue >= 0 && (hue <= .125 || hue >= .875) && accent.hslSaturationF() >= .1;
+    if (!redAdjacent)
+        return accent;
+    return readableEntryColor(theme, std::fmod(hue + .5, 1.0), .25);
+}
+
+void cacheEntryColors(Theme &theme) {
+    theme.mistakeColor = generateMistakeColor(theme);
+    theme.correctColor = generateCorrectColor(theme);
+}
+
 }
 
 QStringList colorKeys() {
     return {"background", "surface", "surface_alt", "text", "muted", "accent", "accent_text",
-            "border", "grid", "selection", "related", "matching", "error"};
+            "border", "grid", "selection", "related", "matching"};
 }
 
 QStringList presetNames() {
@@ -38,13 +107,14 @@ Theme presetTheme(const QString &name) {
     const auto values = palettes.value(name);
     for (int index = 0; index < keys.size(); ++index)
         theme.colors.insert(keys[index], QColor(values[index]));
+    cacheEntryColors(theme);
     return theme;
 }
 
 QJsonObject Theme::toJson() const {
     QJsonObject result;
-    for (auto color = colors.cbegin(); color != colors.cend(); ++color)
-        result.insert(color.key(), color.value().name());
+    for (const auto &key : colorKeys())
+        result.insert(key, color(key).name());
     QJsonObject data{{"version", 1}, {"name", name}, {"colors", result}};
     if (!sourceKind.isEmpty())
         data.insert("source", QJsonObject{{"kind", sourceKind}, {"path", sourcePath}});
@@ -62,6 +132,9 @@ Theme parseTheme(const QJsonObject &data) {
     const auto colors = data.value("colors").toObject();
     const auto keys = colorKeys();
     for (auto color = colors.constBegin(); color != colors.constEnd(); ++color) {
+        // Old theme files remain loadable, but their error override is no longer used.
+        if (color.key() == "error")
+            continue;
         if (!keys.contains(color.key()))
             invalid("Unknown color: " + color.key());
     }
@@ -73,6 +146,7 @@ Theme parseTheme(const QJsonObject &data) {
             invalid(key + ": expected a color in #RRGGBB format");
         theme.colors.insert(key, QColor(value));
     }
+    cacheEntryColors(theme);
     if (data.contains("source")) {
         if (!data.value("source").isObject())
             invalid("Theme source must be an object");
