@@ -1,3 +1,11 @@
+/**
+ * @file theme.cpp
+ * @brief Theme presets, palette validation, color derivation, and JSON format.
+ *
+ * All required palette keys are validated together. Correct and incorrect
+ * entry colors are derived from the palette and cached in Theme so board
+ * painting does not repeat contrast calculations.
+ */
 #include "theme.h"
 #include "storage.h"
 

@@ -1,3 +1,12 @@
+/**
+ * @file storage.cpp
+ * @brief Atomic JSON persistence for game sessions and shared JSON files.
+ *
+ * Session loading validates puzzle uniqueness, cell ranges, notes, mistakes,
+ * undo snapshots, identity, and elapsed time before exposing restored state.
+ * Older session formats missing newer optional fields are reconstructed where
+ * possible, including an undo step for replaying completion.
+ */
 #include "storage.h"
 
 #include <QDir>

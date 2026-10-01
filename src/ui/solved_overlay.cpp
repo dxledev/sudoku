@@ -1,3 +1,7 @@
+/**
+ * @file solved_overlay.cpp
+ * @brief Animated completion treatment above the captured Sudoku grid.
+ */
 #include "solved_overlay.h"
 
 #include <QGraphicsBlurEffect>

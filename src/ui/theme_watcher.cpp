@@ -1,3 +1,11 @@
+/**
+ * @file theme_watcher.cpp
+ * @brief Debounced filesystem monitoring and live theme replacement.
+ *
+ * Both the configured theme file and relevant source paths are watched.
+ * Reload failures leave the last accepted palette active and notify the window;
+ * successful changes emit only when the resolved theme differs.
+ */
 #include "theme_watcher.h"
 #include "core/storage.h"
 #include "core/theme_source.h"

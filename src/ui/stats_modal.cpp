@@ -1,3 +1,10 @@
+/**
+ * @file stats_modal.cpp
+ * @brief Statistics modal table construction, formatting, and theme updates.
+ *
+ * Values are grouped by difficulty and formatted from the persisted aggregate
+ * totals. The modal uses the shared backdrop and keeps focus within its card.
+ */
 #include "stats_modal.h"
 
 #include <QFrame>

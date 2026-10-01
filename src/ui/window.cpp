@@ -1,3 +1,12 @@
+/**
+ * @file window.cpp
+ * @brief Main game window, widget composition, interaction, and lifecycle.
+ *
+ * The window owns the active Game, runs puzzle generation on a worker thread,
+ * coordinates pause and modal states, refreshes presentation from game state,
+ * and atomically persists sessions and statistics. Focus loss uses a separate
+ * grace timer so brief window switches do not pause play immediately.
+ */
 #include "window.h"
 #include "core/storage.h"
 

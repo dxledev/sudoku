@@ -1,3 +1,12 @@
+/**
+ * @file game.cpp
+ * @brief In-memory game rules, pencil notes, hints, mistakes, and undo.
+ *
+ * A successful state-changing operation checkpoints values, notes, and hints.
+ * Correct entries also remove matching peer notes; undo restores that full
+ * snapshot while the lifetime mistake total and repeat-forgiveness counters
+ * remain independent of the undo history.
+ */
 #include "game.h"
 #include <algorithm>
 #include <limits>

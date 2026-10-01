@@ -1,3 +1,12 @@
+/**
+ * @file board.cpp
+ * @brief Board input handling and custom painting for all 81 cells.
+ *
+ * The board is a single widget. It computes a square drawing region, derives
+ * cell highlights from the selected row, column, box, and digit, and draws
+ * values and pencil marks directly with QPainter. Input emits requests so the
+ * owning window remains responsible for changing game state.
+ */
 #include "board.h"
 #include "animated_tooltip.h"
 #include "solved_overlay.h"

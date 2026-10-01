@@ -1,3 +1,11 @@
+/**
+ * @file cli.cpp
+ * @brief Command-line parsing and theme management subcommands.
+ *
+ * Theme mutations are validated before writing. Read-only commands and
+ * --dry-run avoid changing the user's files; imports and source-following
+ * commands resolve their palette before the persistent theme is replaced.
+ */
 #include "cli.h"
 #include "core/storage.h"
 #include "core/theme.h"

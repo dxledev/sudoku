@@ -1,3 +1,11 @@
+/**
+ * @file puzzle.cpp
+ * @brief Sudoku constraint checks, solving helpers, and randomized generation.
+ *
+ * Candidate digits are represented by bits. The bounded solution counter is
+ * used to prove uniqueness, while generation retries randomized clue removal
+ * until the requested clue band and tier-specific logical constraints hold.
+ */
 #include "puzzle.h"
 
 #include <algorithm>

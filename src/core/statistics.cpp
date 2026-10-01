@@ -1,3 +1,11 @@
+/**
+ * @file statistics.cpp
+ * @brief Per-difficulty win and qualifying-quit accounting.
+ *
+ * Wins are identified by stable puzzle identity so undoing a completed puzzle
+ * cannot record the same result twice. Average and best times are derived from
+ * accumulated totals; JSON parsing rejects malformed or inconsistent values.
+ */
 #include "statistics.h"
 #include "storage.h"
 

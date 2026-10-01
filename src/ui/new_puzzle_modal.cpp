@@ -1,3 +1,10 @@
+/**
+ * @file new_puzzle_modal.cpp
+ * @brief Confirmation flow for replacing an unfinished puzzle.
+ *
+ * The in-window card traps keyboard focus, supports Escape cancellation, and
+ * emits a difficulty only after explicit confirmation.
+ */
 #include "new_puzzle_modal.h"
 
 #include <QFrame>

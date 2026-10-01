@@ -1,3 +1,11 @@
+/**
+ * @file main.cpp
+ * @brief Application entry point for the Qt game and theme command line.
+ *
+ * Startup parses options before creating either a core-only command process or
+ * the widget application. Window-system defaults are selected before Qt loads
+ * the UI, and startup failures are reported as a concise command-line error.
+ */
 #include "cli.h"
 #include "core/storage.h"
 #include "core/theme.h"
@@ -13,6 +21,7 @@ int main(int argc, char **argv) {
     QCoreApplication::setApplicationName("sudoku");
     QCoreApplication::setApplicationVersion("1.0.0");
     QCoreApplication::setOrganizationName("QuietSudoku");
+
     try {
         QStringList arguments;
         for (int index = 1; index < argc; ++index)

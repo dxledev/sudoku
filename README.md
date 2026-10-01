@@ -13,6 +13,16 @@ cmake --build build --parallel 4
 ./build/sudoku
 ```
 
+## API documentation
+
+Generate the C++ API reference with Doxygen:
+
+```bash
+doxygen Doxyfile
+```
+
+The generated HTML starts at `build/doxygen/html/index.html`.
+
 The last game resumes automatically. Start a fresh game with `./build/sudoku --difficulty expert`, or choose a difficulty in the window. Replacing an unfinished game through the UI asks for confirmation in a modal inside the window. Choose **Keep playing** or press **Escape** to cancel, or choose **New puzzle** to confirm. The timer pauses while the modal is open.
 
 The native window can be tiled, floated, maximized, and resized by the compositor. Its minimum size is 720 × 760 logical pixels to keep the board and controls usable. Wayland is selected automatically when `WAYLAND_DISPLAY` is present; `QT_QPA_PLATFORM` can override this.

@@ -1,3 +1,11 @@
+/**
+ * @file theme_source.cpp
+ * @brief Import and resolve palettes from external theme sources.
+ *
+ * Source adapters convert supported formats to the application's canonical
+ * palette. Watch paths include relevant parent directories so atomic file
+ * replacement and symlink retargeting can be detected by the UI watcher.
+ */
 #include "theme_source.h"
 #include "storage.h"
 

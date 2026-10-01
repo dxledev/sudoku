@@ -1,3 +1,11 @@
+/**
+ * @file modal_backdrop.cpp
+ * @brief Blurred, tinted background layer shared by embedded modal cards.
+ *
+ * A snapshot is captured when the overlay appears and blurred for painting.
+ * The card remains an interactive child; presses elsewhere emit a signal for
+ * the owning modal to dismiss itself.
+ */
 #include "modal_backdrop.h"
 
 #include <QGraphicsBlurEffect>

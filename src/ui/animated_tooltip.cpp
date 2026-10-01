@@ -1,3 +1,7 @@
+/**
+ * @file animated_tooltip.cpp
+ * @brief Paint and animate brief contextual hints on the board.
+ */
 #include "animated_tooltip.h"
 
 #include <QGraphicsOpacityEffect>
