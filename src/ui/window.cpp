@@ -458,6 +458,7 @@ void Window::refreshTimer() {
 
 void Window::refreshMistakeControls() {
     const bool easy = difficulty_ == Difficulty::Easy;
+    mistakesLabel_->setVisible(easy);
     checkBox_->setVisible(easy);
     checkBox_->setEnabled(easy && !paused_ && !loading_);
     if (!easy) {

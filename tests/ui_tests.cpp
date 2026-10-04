@@ -404,6 +404,7 @@ private slots:
         QVERIFY(correctLegend);
         QVERIFY(incorrectLegend);
         QCOMPARE(check->isVisible(), difficulty == Difficulty::Easy);
+        QCOMPARE(counter->isVisible(), difficulty == Difficulty::Easy);
         QCOMPARE(legend->isVisible(), difficulty == Difficulty::Easy);
         QCOMPARE(correctLegend->text(), QString("●  Correct"));
         QCOMPARE(incorrectLegend->text(), QString("●  Incorrect"));
@@ -520,6 +521,7 @@ private slots:
             return false;
         };
         QVERIFY(selectDifficulty("Medium"));
+        QVERIFY(window.findChild<QLabel *>("mistakeCount")->isHidden());
         QVERIFY(check->isHidden());
         QVERIFY(!check->isChecked());
         QTRY_VERIFY_WITH_TIMEOUT(window.game()->puzzle().difficulty == Difficulty::Medium, 15000);
@@ -530,6 +532,7 @@ private slots:
         QVERIFY(window.game()->complete());
         QVERIFY(selectDifficulty("Easy"));
         QTRY_VERIFY_WITH_TIMEOUT(window.game()->puzzle().difficulty == Difficulty::Easy, 15000);
+        QVERIFY(window.findChild<QLabel *>("mistakeCount")->isVisible());
         QVERIFY(check->isVisible());
         QVERIFY(!check->isChecked());
         QCOMPARE(window.findChild<QLabel *>("mistakeCount")->text(), QString("Mistakes: 0"));
