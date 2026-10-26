@@ -139,7 +139,7 @@ private slots:
         QTest::mouseClick(modal, Qt::LeftButton, Qt::NoModifier, modal->findChild<QWidget *>("statsCard")->geometry().center());
         QVERIFY(modal->isVisible());
         QTest::mouseClick(modal, Qt::LeftButton, Qt::NoModifier, QPoint(4, 4));
-        QVERIFY(modal->isHidden());
+        QTRY_VERIFY(modal->isHidden());
         QCOMPARE(QApplication::focusWidget(), window.board());
         QTRY_VERIFY(window.elapsedSeconds() > seconds);
         window.close();
@@ -203,7 +203,7 @@ private slots:
         if (!screenshots.isEmpty())
             QVERIFY(window.grab().save(screenshots + "/stats-paper-compact.png"));
         QTest::keyClick(modal->findChild<QPushButton *>("closeStats"), Qt::Key_Escape);
-        QVERIFY(modal->isHidden());
+        QTRY_VERIFY(modal->isHidden());
         window.undo();
         QVERIFY(!window.game()->complete());
         window.showStats();
@@ -213,7 +213,7 @@ private slots:
         window.enterDigit(game.puzzle().solution[cell]);
         QVERIFY(!window.game()->complete());
         QTest::mouseClick(modal->findChild<QPushButton *>("closeStats"), Qt::LeftButton);
-        QVERIFY(modal->isHidden());
+        QTRY_VERIFY(modal->isHidden());
         QTRY_VERIFY(window.elapsedSeconds() > seconds);
         window.enterDigit(game.puzzle().solution[cell]);
         QVERIFY(window.game()->complete());
@@ -291,7 +291,7 @@ private slots:
             QVERIFY(window.grab().save(screenshots + "/new-puzzle-paper-compact.png"));
         }
         QTest::mouseClick(keep, Qt::LeftButton);
-        QVERIFY(modal->isHidden());
+        QTRY_VERIFY(modal->isHidden());
         QCOMPARE(QApplication::focusWidget(), window.board());
         QCOMPARE(window.game()->id(), originalId);
         QVERIFY(!QFileInfo::exists(directory.filePath("stats.json")));
@@ -301,7 +301,7 @@ private slots:
         QTest::mouseClick(modal, Qt::LeftButton, Qt::NoModifier, card->geometry().center());
         QVERIFY(modal->isVisible());
         QTest::mouseClick(modal, Qt::LeftButton, Qt::NoModifier, QPoint(4, 4));
-        QVERIFY(modal->isHidden());
+        QTRY_VERIFY(modal->isHidden());
         QCOMPARE(QApplication::focusWidget(), window.board());
         QCOMPARE(window.game()->id(), originalId);
         window.togglePause();
@@ -309,7 +309,7 @@ private slots:
         QTest::keyClick(window.board(), Qt::Key_N, Qt::ControlModifier);
         QVERIFY(modal->isVisible());
         QTest::keyClick(keep, Qt::Key_Escape);
-        QVERIFY(modal->isHidden());
+        QTRY_VERIFY(modal->isHidden());
         QVERIFY(window.isPaused());
         const auto pausedSeconds = window.elapsedSeconds();
         QTest::qWait(1100);
@@ -325,12 +325,13 @@ private slots:
         QVERIFY(modal->isVisible());
         QVERIFY(!medium->isChecked());
         QTest::keyClick(keep, Qt::Key_Escape);
+        QTRY_VERIFY(modal->isHidden());
         QCOMPARE(window.game()->puzzle().difficulty, Difficulty::Easy);
         QCOMPARE(window.game()->id(), originalId);
         QTest::mouseClick(medium, Qt::LeftButton);
         QTest::keyClick(keep, Qt::Key_Tab);
         QTest::keyClick(start, Qt::Key_Return);
-        QVERIFY(modal->isHidden());
+        QTRY_VERIFY(modal->isHidden());
         QTRY_VERIFY_WITH_TIMEOUT(window.game()->id() != originalId, 15000);
         QCOMPARE(window.game()->puzzle().difficulty, Difficulty::Medium);
         QCOMPARE(Statistics::load(directory.filePath("stats.json")).at(Difficulty::Easy).quits, 1);

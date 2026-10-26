@@ -69,9 +69,9 @@ QWidget *NewPuzzleModal::buildCard() {
 void NewPuzzleModal::showConfirmation(Difficulty difficulty) {
     difficulty_ = difficulty;
     card_->setFixedWidth(std::min(460, std::max(0, width() - 48)));
-    show();
     layout()->activate();
     raise();
+    present();
     keepButton_->setFocus();
 }
 
@@ -106,13 +106,11 @@ void NewPuzzleModal::resizeEvent(QResizeEvent *event) {
 }
 
 void NewPuzzleModal::dismiss() {
-    hide();
-    emit dismissed();
+    closeAnimated([this] { emit dismissed(); });
 }
 
 void NewPuzzleModal::confirm() {
-    hide();
-    emit confirmed(difficulty_);
+    closeAnimated([this] { emit confirmed(difficulty_); });
 }
 
 }

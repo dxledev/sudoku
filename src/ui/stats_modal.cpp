@@ -116,9 +116,9 @@ void StatsModal::showStats(const Statistics &statistics) {
         values[5]->setText(stats.wins + stats.quits ? QString::number(100.0 * stats.wins / (stats.wins + stats.quits), 'f', 0) + "%" : "—");
     }
     card_->setFixedWidth(std::min(700, std::max(0, width() - 48)));
-    show();
     layout()->activate();
     raise();
+    present();
     findChild<QPushButton *>("closeStats")->setFocus();
 }
 
@@ -136,8 +136,7 @@ void StatsModal::keyPressEvent(QKeyEvent *event) {
 }
 
 void StatsModal::dismiss() {
-    hide();
-    emit dismissed();
+    closeAnimated([this] { emit dismissed(); });
 }
 
 bool StatsModal::focusNextPrevChild(bool) {

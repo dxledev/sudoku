@@ -2,8 +2,11 @@
 
 #include <QPixmap>
 #include <QWidget>
+#include <functional>
 
 namespace sudoku {
+
+class ModalMotion;
 
 /** @brief In-window modal surface with a blurred snapshot and outside-click signal. */
 class ModalBackdrop : public QWidget {
@@ -20,6 +23,12 @@ signals:
 
 protected:
     QWidget *card_ = nullptr;
+    /** @brief Show the layer and animate the card and backdrop in without a visible flash. */
+    void present();
+    /** @brief Animate out, then hide and run @p after. Ignored while already closing. */
+    void closeAnimated(std::function<void()> after);
+    /** @brief True while the closing transition is running. */
+    bool isClosing() const { return closing_; }
     /** @brief Draw the blurred snapshot and tint behind the modal card. */
     void paintEvent(QPaintEvent *event) override;
     /** @brief Capture the background and size the card when shown. */
@@ -35,6 +44,9 @@ private:
     QWidget *background_;
     QPixmap snapshot_;
     QColor tint_;
+    ModalMotion *motion_ = nullptr;
+    std::function<void()> afterClose_;
+    bool closing_ = false;
     /** @brief Store and blur a newly captured background image. */
     void capture(const QPixmap &snapshot);
     /** @brief Release the image to avoid retaining a hidden modal snapshot. */

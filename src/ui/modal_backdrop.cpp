@@ -7,6 +7,7 @@
  * the owning modal to dismiss itself.
  */
 #include "modal_backdrop.h"
+#include "modal_motion.h"
 
 #include <QGraphicsBlurEffect>
 #include <QGraphicsPixmapItem>
@@ -18,6 +19,7 @@
 #include <QResizeEvent>
 #include <QLayout>
 #include <algorithm>
+#include <utility>
 
 namespace sudoku {
 namespace {
@@ -80,8 +82,43 @@ void ModalBackdrop::setTint(const QColor &color) {
     update();
 }
 
+void ModalBackdrop::present() {
+    if (!motion_) {
+        motion_ = new ModalMotion(card_);
+        card_->setGraphicsEffect(motion_);
+        connect(motion_, &ModalMotion::progressChanged, this, [this] { update(); });
+        connect(motion_, &ModalMotion::finished, this, [this](bool open) {
+            if (open || !closing_)
+                return;
+            closing_ = false;
+            hide();
+            card_->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+            if (auto after = std::exchange(afterClose_, nullptr))
+                after();
+        });
+    }
+    closing_ = false;
+    afterClose_ = nullptr;
+    card_->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+    // Start fully transparent so the first painted frame matches the untouched window.
+    if (!isVisible())
+        motion_->reset();
+    show();
+    motion_->animate(true);
+}
+
+void ModalBackdrop::closeAnimated(std::function<void()> after) {
+    if (closing_ || !isVisible())
+        return;
+    closing_ = true;
+    afterClose_ = std::move(after);
+    card_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    motion_->animate(false);
+}
+
 void ModalBackdrop::paintEvent(QPaintEvent *) {
     QPainter painter(this);
+    painter.setOpacity(motion_ ? motion_->progress() : 1.0);
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
     painter.drawPixmap(rect(), snapshot_);
     painter.fillRect(rect(), tint_);
